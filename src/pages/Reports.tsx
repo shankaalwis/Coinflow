@@ -6,7 +6,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { ArrowLeft, Download, FileText, TrendingUp, TrendingDown } from "lucide-react";
+import { ArrowLeft, Download, FileText, TrendingUp, TrendingDown, Settings as SettingsIcon } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { useCashbookContext } from "@/context/CashbookContext";
 import { ThemeToggle } from "@/components/theme-toggle";
@@ -166,7 +166,7 @@ const Reports = () => {
     let cursorY = 60;
 
     doc.setFontSize(18);
-    doc.text("SmartCash Ledger Report", marginLeft, cursorY);
+    doc.text("Coinflow Report", marginLeft, cursorY);
     cursorY += 20;
 
     doc.setFontSize(12);
@@ -274,7 +274,13 @@ const Reports = () => {
                 <p className="text-sm text-muted-foreground">Generate and export your financial data</p>
               </div>
             </div>
-            <ThemeToggle />
+            <div className="flex items-center gap-2">
+              <Button variant="outline" onClick={() => navigate("/account")}>
+                <SettingsIcon className="h-4 w-4 mr-2" />
+                Account
+              </Button>
+              <ThemeToggle />
+            </div>
           </div>
         </div>
       </header>
@@ -493,3 +499,5 @@ const Reports = () => {
 };
 
 export default Reports;
+
+

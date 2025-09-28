@@ -7,6 +7,7 @@ import {
   useState,
   type ReactNode,
 } from "react";
+import { useAuth } from "@/hooks/useAuth";
 
 type TransactionType = "CASH_IN" | "CASH_OUT";
 
@@ -14,7 +15,7 @@ type Cashbook = {
   id: string;
   name: string;
   balance: number;
-  lastActivity: string;
+  lastActivity: string | null;
 };
 
 type Transaction = {
@@ -79,9 +80,24 @@ type CashbookContextValue = {
   removePaymentMode: (id: string) => void;
 };
 
-const STORAGE_KEY = "smartcash-ledger:data";
+const STORAGE_KEY_PREFIX = "coinflow:data";
 
 const isBrowser = typeof window !== "undefined";
+
+const DEFAULT_CATEGORIES: Category[] = [
+  { id: "cat-1", name: "Salary" },
+  { id: "cat-2", name: "Groceries" },
+  { id: "cat-3", name: "Rent" },
+  { id: "cat-4", name: "Utilities" },
+  { id: "cat-5", name: "Consulting" },
+];
+
+const DEFAULT_PAYMENT_MODES: PaymentMode[] = [
+  { id: "mode-1", name: "Cash" },
+  { id: "mode-2", name: "Bank Transfer" },
+  { id: "mode-3", name: "Card" },
+  { id: "mode-4", name: "Digital Wallet" },
+];
 
 const generateId = () =>
   typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
@@ -100,132 +116,77 @@ const getLatestActivity = (cashbookId: string, items: Transaction[]) => {
     .sort()
     .pop();
 
-  return latest ?? new Date().toISOString();
+  return latest ?? null;
 };
 
-const defaultState = (): PersistedState => {
-  const transactions: Transaction[] = [
-    {
-      id: "t-1",
-      cashbookId: "cb-1",
-      type: "CASH_IN",
-      amount: 4000.75,
-      description: "Salary payment",
-      category: "Salary",
-      mode: "Bank Transfer",
-      date: "2024-01-15T10:30:00Z",
-    },
-    {
-      id: "t-2",
-      cashbookId: "cb-1",
-      type: "CASH_OUT",
-      amount: 1200,
-      description: "Rent payment",
-      category: "Rent",
-      mode: "Bank Transfer",
-      date: "2024-01-02T09:00:00Z",
-    },
-    {
-      id: "t-3",
-      cashbookId: "cb-1",
-      type: "CASH_OUT",
-      amount: 350,
-      description: "Weekly groceries",
-      category: "Groceries",
-      mode: "Card",
-      date: "2024-01-12T16:45:00Z",
-    },
-    {
-      id: "t-4",
-      cashbookId: "cb-2",
-      type: "CASH_IN",
-      amount: 12500,
-      description: "Consulting invoice",
-      category: "Consulting",
-      mode: "Bank Transfer",
-      date: "2024-01-10T14:10:00Z",
-    },
-    {
-      id: "t-5",
-      cashbookId: "cb-2",
-      type: "CASH_OUT",
-      amount: 3580.5,
-      description: "Office rent",
-      category: "Rent",
-      mode: "Bank Transfer",
-      date: "2024-01-05T08:00:00Z",
-    },
-  ];
+const cloneCategories = (categories: Category[]) => categories.map((category) => ({ ...category }));
+const clonePaymentModes = (modes: PaymentMode[]) => modes.map((mode) => ({ ...mode }));
 
-  const cashbooks: Cashbook[] = [
-    {
-      id: "cb-1",
-      name: "Personal",
-      balance: calculateBalance("cb-1", transactions),
-      lastActivity: getLatestActivity("cb-1", transactions),
-    },
-    {
-      id: "cb-2",
-      name: "Business",
-      balance: calculateBalance("cb-2", transactions),
-      lastActivity: getLatestActivity("cb-2", transactions),
-    },
-  ];
+const buildDefaultState = (): PersistedState => ({
+  cashbooks: [],
+  transactions: [],
+  categories: cloneCategories(DEFAULT_CATEGORIES),
+  paymentModes: clonePaymentModes(DEFAULT_PAYMENT_MODES),
+});
 
-  const categories: Category[] = [
-    { id: "cat-1", name: "Salary" },
-    { id: "cat-2", name: "Groceries" },
-    { id: "cat-3", name: "Rent" },
-    { id: "cat-4", name: "Utilities" },
-    { id: "cat-5", name: "Consulting" },
-  ];
-
-  const paymentModes: PaymentMode[] = [
-    { id: "mode-1", name: "Cash" },
-    { id: "mode-2", name: "Bank Transfer" },
-    { id: "mode-3", name: "Card" },
-    { id: "mode-4", name: "Digital Wallet" },
-  ];
-
-  return { cashbooks, transactions, categories, paymentModes };
-};
-
-const loadPersistedState = (): PersistedState => {
+const loadPersistedState = (key: string): PersistedState => {
   if (!isBrowser) {
-    return defaultState();
+    return buildDefaultState();
   }
 
   try {
-    const raw = window.localStorage.getItem(STORAGE_KEY);
+    const raw = window.localStorage.getItem(key);
     if (!raw) {
-      return defaultState();
+      return buildDefaultState();
     }
 
-    const parsed = JSON.parse(raw) as PersistedState;
+    const parsed = JSON.parse(raw) as Partial<PersistedState>;
     return {
       cashbooks: parsed.cashbooks ?? [],
       transactions: parsed.transactions ?? [],
-      categories: parsed.categories ?? [],
-      paymentModes: parsed.paymentModes ?? [],
+      categories: parsed.categories?.length ? parsed.categories : cloneCategories(DEFAULT_CATEGORIES),
+      paymentModes: parsed.paymentModes?.length ? parsed.paymentModes : clonePaymentModes(DEFAULT_PAYMENT_MODES),
     };
   } catch (error) {
     console.error("Failed to read cashbook data from storage", error);
-    return defaultState();
+    return buildDefaultState();
   }
 };
+
+const recalcCashbooks = (cashbooks: Cashbook[], transactions: Transaction[]): Cashbook[] =>
+  cashbooks.map((cashbook) => ({
+    ...cashbook,
+    balance: calculateBalance(cashbook.id, transactions),
+    lastActivity: getLatestActivity(cashbook.id, transactions) ?? cashbook.lastActivity ?? null,
+  }));
 
 const CashbookContext = createContext<CashbookContextValue | undefined>(undefined);
 
 export const CashbookProvider = ({ children }: { children: ReactNode }) => {
-  const initialState = useMemo(() => loadPersistedState(), []);
+  const { user } = useAuth();
+  const storageKey = useMemo(
+    () => `${STORAGE_KEY_PREFIX}:${user?.id ?? "anonymous"}`,
+    [user?.id],
+  );
 
-  const [cashbooks, setCashbooks] = useState<Cashbook[]>(initialState.cashbooks);
-  const [transactions, setTransactions] = useState<Transaction[]>(initialState.transactions);
-  const [categories, setCategories] = useState<Category[]>(initialState.categories);
-  const [paymentModes, setPaymentModes] = useState<PaymentMode[]>(initialState.paymentModes);
+  const [cashbooks, setCashbooks] = useState<Cashbook[]>([]);
+  const [transactions, setTransactions] = useState<Transaction[]>([]);
+  const [categories, setCategories] = useState<Category[]>(cloneCategories(DEFAULT_CATEGORIES));
+  const [paymentModes, setPaymentModes] = useState<PaymentMode[]>(clonePaymentModes(DEFAULT_PAYMENT_MODES));
+  const [isInitialized, setIsInitialized] = useState(false);
 
   useEffect(() => {
-    if (!isBrowser) {
+    setIsInitialized(false);
+    const state = loadPersistedState(storageKey);
+    setCashbooks(recalcCashbooks(state.cashbooks, state.transactions));
+    setTransactions(state.transactions);
+    setCategories(cloneCategories(state.categories));
+    setPaymentModes(clonePaymentModes(state.paymentModes));
+    setIsInitialized(true);
+  }, [storageKey]);
+
+  useEffect(() => {
+    if (!isBrowser || !isInitialized) {
       return;
     }
 
@@ -236,18 +197,8 @@ export const CashbookProvider = ({ children }: { children: ReactNode }) => {
       paymentModes,
     };
 
-    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
-  }, [cashbooks, transactions, categories, paymentModes]);
-
-  useEffect(() => {
-    setCashbooks((prev) =>
-      prev.map((cashbook) => ({
-        ...cashbook,
-        balance: calculateBalance(cashbook.id, transactions),
-        lastActivity: getLatestActivity(cashbook.id, transactions),
-      })),
-    );
-  }, [transactions]);
+    window.localStorage.setItem(storageKey, JSON.stringify(state));
+  }, [cashbooks, transactions, categories, paymentModes, storageKey, isInitialized]);
 
   const getCashbookById = useCallback(
     (id: string) => cashbooks.find((cashbook) => cashbook.id === id),
@@ -289,8 +240,16 @@ export const CashbookProvider = ({ children }: { children: ReactNode }) => {
   }, []);
 
   const deleteCashbook = useCallback((id: string) => {
-    setCashbooks((prev) => prev.filter((cashbook) => cashbook.id !== id));
-    setTransactions((prev) => prev.filter((transaction) => transaction.cashbookId !== id));
+    setTransactions((prevTransactions) => {
+      const updatedTransactions = prevTransactions.filter((transaction) => transaction.cashbookId !== id);
+      setCashbooks((prevCashbooks) =>
+        recalcCashbooks(
+          prevCashbooks.filter((cashbook) => cashbook.id !== id),
+          updatedTransactions,
+        ),
+      );
+      return updatedTransactions;
+    });
   }, []);
 
   const addTransaction = useCallback((cashbookId: string, input: TransactionInput) => {
@@ -302,13 +261,15 @@ export const CashbookProvider = ({ children }: { children: ReactNode }) => {
         ...input,
       };
 
-      return [...prev, transaction];
+      const updatedTransactions = [...prev, transaction];
+      setCashbooks((prevCashbooks) => recalcCashbooks(prevCashbooks, updatedTransactions));
+      return updatedTransactions;
     });
   }, []);
 
   const updateTransaction = useCallback((id: string, updates: TransactionUpdate) => {
-    setTransactions((prev) =>
-      prev.map((transaction) =>
+    setTransactions((prev) => {
+      const updatedTransactions = prev.map((transaction) =>
         transaction.id === id
           ? {
               ...transaction,
@@ -316,12 +277,19 @@ export const CashbookProvider = ({ children }: { children: ReactNode }) => {
               cashbookId: updates.cashbookId ?? transaction.cashbookId,
             }
           : transaction,
-      ),
-    );
+      );
+
+      setCashbooks((prevCashbooks) => recalcCashbooks(prevCashbooks, updatedTransactions));
+      return updatedTransactions;
+    });
   }, []);
 
   const deleteTransaction = useCallback((id: string) => {
-    setTransactions((prev) => prev.filter((transaction) => transaction.id !== id));
+    setTransactions((prev) => {
+      const updatedTransactions = prev.filter((transaction) => transaction.id !== id);
+      setCashbooks((prevCashbooks) => recalcCashbooks(prevCashbooks, updatedTransactions));
+      return updatedTransactions;
+    });
   }, []);
 
   const addCategory = useCallback((name: string) => {
@@ -404,3 +372,4 @@ export const useCashbookContext = () => {
 
   return context;
 };
+

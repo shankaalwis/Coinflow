@@ -1,7 +1,7 @@
-import { createContext, useContext, useEffect, useState, ReactNode } from 'react';
-import { User, Session } from '@supabase/supabase-js';
-import { supabase } from '@/integrations/supabase/client';
-import { useToast } from '@/hooks/use-toast';
+import { createContext, useContext, useEffect, useState, ReactNode } from "react";
+import { User, Session } from "@supabase/supabase-js";
+import { supabase } from "@/integrations/supabase/client";
+import { useToast } from "@/hooks/use-toast";
 
 interface AuthContextType {
   user: User | null;
@@ -9,7 +9,7 @@ interface AuthContextType {
   loading: boolean;
   signUp: (email: string, password: string) => Promise<{ error: any }>;
   signIn: (email: string, password: string) => Promise<{ error: any }>;
-  signOut: () => Promise<void>;
+  signOut: () => Promise<boolean>;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -21,16 +21,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const { toast } = useToast();
 
   useEffect(() => {
-    // Set up auth state listener
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(
-      (event, session) => {
-        setSession(session);
-        setUser(session?.user ?? null);
-        setLoading(false);
-      }
-    );
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange((event, session) => {
+      setSession(session);
+      setUser(session?.user ?? null);
+      setLoading(false);
+    });
 
-    // Check for existing session
     supabase.auth.getSession().then(({ data: { session } }) => {
       setSession(session);
       setUser(session?.user ?? null);
@@ -42,13 +40,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const signUp = async (email: string, password: string) => {
     const redirectUrl = `${window.location.origin}/dashboard`;
-    
+
     const { error } = await supabase.auth.signUp({
       email,
       password,
       options: {
-        emailRedirectTo: redirectUrl
-      }
+        emailRedirectTo: redirectUrl,
+      },
     });
 
     if (error) {
@@ -82,7 +80,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     } else {
       toast({
         title: "Welcome back!",
-        description: "Successfully signed in to SmartCash Ledger.",
+        description: "Successfully signed in to Coinflow.",
       });
     }
 
@@ -97,18 +95,23 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         description: error.message,
         variant: "destructive",
       });
+      return false;
     }
+
+    return true;
   };
 
   return (
-    <AuthContext.Provider value={{
-      user,
-      session,
-      loading,
-      signUp,
-      signIn,
-      signOut,
-    }}>
+    <AuthContext.Provider
+      value={{
+        user,
+        session,
+        loading,
+        signUp,
+        signIn,
+        signOut,
+      }}
+    >
       {children}
     </AuthContext.Provider>
   );
@@ -117,7 +120,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 export function useAuth() {
   const context = useContext(AuthContext);
   if (context === undefined) {
-    throw new Error('useAuth must be used within an AuthProvider');
+    throw new Error("useAuth must be used within an AuthProvider");
   }
   return context;
 }

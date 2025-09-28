@@ -23,7 +23,7 @@ const Login = () => {
     } else {
       await signIn(email, password);
     }
-    
+
     setIsLoading(false);
   };
 
@@ -37,7 +37,7 @@ const Login = () => {
               <TrendingUp className="h-8 w-8 text-white" />
             </div>
           </div>
-          <h1 className="text-3xl font-bold text-white mb-2">SmartCash Ledger</h1>
+          <h1 className="text-3xl font-bold text-white mb-2">Coinflow</h1>
           <p className="text-white/80">Your financial tracking companion</p>
         </div>
 
@@ -64,7 +64,7 @@ const Login = () => {
                   required
                 />
               </div>
-              
+
               <div className="space-y-2">
                 <Label htmlFor="password">Password</Label>
                 <div className="relative">
@@ -86,13 +86,13 @@ const Login = () => {
                 </div>
               </div>
 
-              <Button 
-                type="submit" 
+              <Button
+                type="submit"
                 className="w-full"
                 disabled={isLoading}
               >
-                {isLoading 
-                  ? (isSignUp ? "Creating account..." : "Signing in...") 
+                {isLoading
+                  ? (isSignUp ? "Creating account..." : "Signing in...")
                   : (isSignUp ? "Create Account" : "Sign in")
                 }
               </Button>

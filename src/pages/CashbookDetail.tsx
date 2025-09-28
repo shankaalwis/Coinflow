@@ -36,7 +36,7 @@ import {
   Pencil,
   Trash2,
   BarChart3,
-  Wallet,
+  Wallet, Settings as SettingsIcon,
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { useCashbookContext } from "@/context/CashbookContext";
@@ -280,7 +280,7 @@ const CashbookDetail = () => {
           <CardHeader>
             <CardTitle>Cashbook not found</CardTitle>
           </CardHeader>
-          <CardContent className="space-y-4">
+          <CardContent className="space-y-3">
             <p className="text-muted-foreground">
               The cashbook you are trying to view does not exist or was removed.
             </p>
@@ -307,7 +307,13 @@ const CashbookDetail = () => {
                 <p className="text-sm text-muted-foreground">Cashbook Management</p>
               </div>
             </div>
-            <ThemeToggle />
+            <div className="flex items-center gap-2">
+              <Button variant="outline" onClick={() => navigate("/account")}>
+                <SettingsIcon className="h-4 w-4 mr-2" />
+                Account
+              </Button>
+              <ThemeToggle />
+            </div>
           </div>
         </div>
       </header>
@@ -351,7 +357,7 @@ const CashbookDetail = () => {
                         Add Transaction
                       </Button>
                     </DialogTrigger>
-                    <DialogContent className="max-w-2xl">
+                    <DialogContent className="max-w-4xl sm:max-w-5xl">
                       <DialogHeader>
                         <DialogTitle>
                           {dialogMode === "edit" ? "Update Transaction" : "Add New Transaction"}
@@ -360,8 +366,8 @@ const CashbookDetail = () => {
                           Record income or expense activity for this cashbook.
                         </DialogDescription>
                       </DialogHeader>
-                      <div className="grid gap-4 md:grid-cols-[1.2fr_1fr]">
-                        <div className="rounded-lg border bg-muted/40 p-4">
+                      <div className="grid gap-6 md:grid-cols-[1.4fr_1fr]">
+                        <div className="rounded-lg border bg-muted/40 p-3 md:p-4 space-y-4">
                           <div className="flex items-center gap-3">
                             <div className="rounded-full bg-gradient-primary/80 p-3">
                               <BarChart3 className="h-5 w-5 text-primary-foreground" />
@@ -379,7 +385,7 @@ const CashbookDetail = () => {
                               </p>
                             </div>
                           </div>
-                          <div className="grid grid-cols-2 gap-3 mt-6">
+                          <div className="grid grid-cols-2 gap-2 mt-4">
                             <div className="rounded-lg border bg-background p-3">
                               <p className="text-xs text-muted-foreground">Total Cash In</p>
                               <p className="text-base font-semibold text-income">{formatCurrency(cashInTotal)}</p>
@@ -390,7 +396,7 @@ const CashbookDetail = () => {
                             </div>
                           </div>
                         </div>
-                        <form onSubmit={handleSubmitTransaction} className="space-y-4">
+                        <form onSubmit={handleSubmitTransaction} className="space-y-3">
                           <div className="grid gap-4 sm:grid-cols-2">
                             <div className="space-y-2">
                               <Label htmlFor="type">Transaction Type</Label>
@@ -704,3 +710,5 @@ const CashbookDetail = () => {
 };
 
 export default CashbookDetail;
+
+

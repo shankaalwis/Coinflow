@@ -30,10 +30,24 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Plus, TrendingUp, LogOut, Wallet, ArrowRight, EllipsisVertical, Pencil, Trash2 } from "lucide-react";
+import { Plus, TrendingUp, LogOut, Wallet, EllipsisVertical, Pencil, Trash2, Settings as SettingsIcon } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { useCashbookContext } from "@/context/CashbookContext";
 import { ThemeToggle } from "@/components/theme-toggle";
+import { useAuth } from "@/hooks/useAuth";
+
+
+const formatCurrency = (amount: number) =>
+  new Intl.NumberFormat("en-US", {
+    style: "currency",
+    currency: "USD",
+  }).format(amount);
+
+const formatTransactionDate = (iso: string) =>
+  new Date(iso).toLocaleDateString("en-US", {
+    month: "short",
+    day: "numeric",
+  });
 
 const Dashboard = () => {
   const [cashbookName, setCashbookName] = useState("");
@@ -44,42 +58,27 @@ const Dashboard = () => {
   const [cashbookToDelete, setCashbookToDelete] = useState<{ id: string; name: string } | null>(null);
   const navigate = useNavigate();
   const { toast } = useToast();
+  const { signOut } = useAuth();
   const { cashbooks, createCashbook, updateCashbook, deleteCashbook, transactions } = useCashbookContext();
 
-  const totalBalance = useMemo(
-    () => cashbooks.reduce((sum, cashbook) => sum + cashbook.balance, 0),
-    [cashbooks],
-  );
+  const hasCashbooks = cashbooks.length > 0;
+  const transactionsByCashbook = useMemo(() => {
+    const grouped = new Map<string, typeof transactions>();
+    const sorted = [...transactions].sort(
+      (a, b) => new Date(b.date).getTime() - new Date(a.date).getTime(),
+    );
 
-  const currentMonthSummary = useMemo(() => {
-    const now = new Date();
-    const monthTransactions = transactions.filter((transaction) => {
-      const date = new Date(transaction.date);
-      return date.getFullYear() === now.getFullYear() && date.getMonth() === now.getMonth();
+    sorted.forEach((transaction) => {
+      if (!grouped.has(transaction.cashbookId)) {
+        grouped.set(transaction.cashbookId, []);
+      }
+      grouped.get(transaction.cashbookId)!.push(transaction);
     });
 
-    const cashIn = monthTransactions
-      .filter((transaction) => transaction.type === "CASH_IN")
-      .reduce((total, transaction) => total + transaction.amount, 0);
-
-    const cashOut = monthTransactions
-      .filter((transaction) => transaction.type === "CASH_OUT")
-      .reduce((total, transaction) => total + transaction.amount, 0);
-
-    return {
-      cashIn,
-      cashOut,
-      net: cashIn - cashOut,
-    };
+    return grouped;
   }, [transactions]);
 
-  const formatCurrency = (amount: number) =>
-    new Intl.NumberFormat("en-US", {
-      style: "currency",
-      currency: "USD",
-    }).format(amount);
-
-  const getLastActivityLabel = (isoDate: string) => {
+  const getLastActivityLabel = (isoDate: string | null) => {
     if (!isoDate) {
       return "No activity yet";
     }
@@ -135,15 +134,13 @@ const Dashboard = () => {
     setCashbookToDelete(null);
   };
 
-  const handleLogout = () => {
-    toast({
-      title: "Logged out",
-      description: "You have been successfully logged out.",
-    });
-    navigate("/login");
+  const handleLogout = async () => {
+    const didSignOut = await signOut();
+    if (didSignOut) {
+      toast({ title: "Signed out", description: "You have been signed out of Coinflow." });
+      navigate("/login", { replace: true });
+    }
   };
-
-  const hasCashbooks = cashbooks.length > 0;
 
   return (
     <div className="min-h-screen bg-background">
@@ -156,18 +153,18 @@ const Dashboard = () => {
                 <TrendingUp className="h-6 w-6 text-white" />
               </div>
               <div>
-                <h1 className="text-2xl font-bold text-foreground">SmartCash Ledger</h1>
+                <h1 className="text-2xl font-bold text-foreground">Coinflow</h1>
                 <p className="text-sm text-muted-foreground">Financial Management Dashboard</p>
               </div>
             </div>
 
             <div className="flex items-center gap-2">
               <ThemeToggle />
-              <Button variant="outline" onClick={() => navigate("/reports")}>
-                Reports
-              </Button>
-              <Button variant="outline" onClick={() => navigate("/settings")}>
-                Settings
+              <Button variant="outline" onClick={() => navigate("/reports")}>Reports</Button>
+              <Button variant="outline" onClick={() => navigate("/settings")}>Settings</Button>
+              <Button variant="outline" onClick={() => navigate("/account")}>
+                <SettingsIcon className="h-4 w-4 mr-2" />
+                Account
               </Button>
               <Button variant="ghost" size="sm" onClick={handleLogout}>
                 <LogOut className="h-4 w-4 mr-2" />
@@ -225,74 +222,116 @@ const Dashboard = () => {
 
         {/* Cashbooks Grid */}
         {hasCashbooks ? (
-          <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
-            {cashbooks.map((cashbook) => (
-              <Card
-                key={cashbook.id}
-                className="shadow-card hover:shadow-elevated transition-all duration-200 group"
-              >
-                <CardHeader>
-                  <div className="flex items-start justify-between gap-2">
-                    <div>
-                      <CardTitle className="text-xl">{cashbook.name}</CardTitle>
-                      <p className="text-sm text-muted-foreground mt-1">
-                        Last activity: {getLastActivityLabel(cashbook.lastActivity)}
-                      </p>
-                    </div>
-                    <DropdownMenu>
-                      <DropdownMenuTrigger asChild>
-                        <Button variant="ghost" size="icon" className="h-8 w-8">
-                          <EllipsisVertical className="h-4 w-4" />
-                        </Button>
-                      </DropdownMenuTrigger>
-                      <DropdownMenuContent align="end">
-                        <DropdownMenuItem
-                          onClick={() => {
-                            setEditCashbookId(cashbook.id);
-                            setEditCashbookName(cashbook.name);
-                            setIsEditDialogOpen(true);
-                          }}
-                        >
-                          <Pencil className="h-4 w-4 mr-2" /> Rename
-                        </DropdownMenuItem>
-                        <DropdownMenuSeparator />
-                        <DropdownMenuItem
-                          onClick={() =>
-                            setCashbookToDelete({ id: cashbook.id, name: cashbook.name })
-                          }
-                          className="text-destructive"
-                        >
-                          <Trash2 className="h-4 w-4 mr-2" /> Delete
-                        </DropdownMenuItem>
-                      </DropdownMenuContent>
-                    </DropdownMenu>
-                  </div>
-                </CardHeader>
-                <CardContent>
-                  <div className="space-y-4">
-                    <div>
-                      <p className="text-sm text-muted-foreground mb-1">Current Balance</p>
-                      <p
-                        className={`text-3xl font-bold ${
-                          cashbook.balance >= 0 ? "text-income" : "text-expense"
-                        }`}
-                      >
-                        {formatCurrency(cashbook.balance)}
-                      </p>
-                    </div>
+          <div className="grid gap-6 md:grid-cols-2 xl:grid-cols-3">
+            {cashbooks.map((cashbook) => {
+              const recentTransactions = transactionsByCashbook.get(cashbook.id)?.slice(0, 10) ?? [];
 
-                    <Button
-                      className="w-full justify-between"
-                      variant="outline"
-                      onClick={() => navigate(`/cashbook/${cashbook.id}`)}
-                    >
-                      View Details
-                      <ArrowRight className="h-4 w-4" />
-                    </Button>
-                  </div>
-                </CardContent>
-              </Card>
-            ))}
+              return (
+                <Card
+                  key={cashbook.id}
+                  className="shadow-card hover:shadow-elevated transition-all duration-200 group cursor-pointer"
+                  role="button"
+                  tabIndex={0}
+                  onClick={() => navigate(`/cashbook/${cashbook.id}`)}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter" || event.key === " ") {
+                      event.preventDefault();
+                      navigate(`/cashbook/${cashbook.id}`);
+                    }
+                  }}
+                >
+                  <CardHeader>
+                    <div className="flex items-start justify-between gap-2">
+                      <div>
+                        <CardTitle className="text-xl leading-tight">{cashbook.name}</CardTitle>
+                        <p className="text-sm text-muted-foreground mt-1">
+                          Last activity: {getLastActivityLabel(cashbook.lastActivity)}
+                        </p>
+                      </div>
+                      <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-8 w-8"
+                            onClick={(event) => event.stopPropagation()}
+                            onKeyDown={(event) => event.stopPropagation()}
+                          >
+                            <EllipsisVertical className="h-4 w-4" />
+                          </Button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="end">
+                          <DropdownMenuItem
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              setEditCashbookId(cashbook.id);
+                              setEditCashbookName(cashbook.name);
+                              setIsEditDialogOpen(true);
+                            }}
+                          >
+                            <Pencil className="h-4 w-4 mr-2" /> Rename
+                          </DropdownMenuItem>
+                          <DropdownMenuSeparator />
+                          <DropdownMenuItem
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              setCashbookToDelete({ id: cashbook.id, name: cashbook.name });
+                            }}
+                            className="text-destructive"
+                          >
+                            <Trash2 className="h-4 w-4 mr-2" /> Delete
+                          </DropdownMenuItem>
+                        </DropdownMenuContent>
+                      </DropdownMenu>
+                    </div>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="space-y-5">
+                      <div>
+                        <p className="text-sm text-muted-foreground mb-1">Current Balance</p>
+                        <p
+                          className={`text-3xl font-bold ${
+                            cashbook.balance >= 0 ? "text-income" : "text-expense"
+                          }`}
+                        >
+                          {formatCurrency(cashbook.balance)}
+                        </p>
+                      </div>
+
+                      <div className="space-y-2">
+                        <p className="text-sm font-medium text-muted-foreground">Recent Activity</p>
+                        {recentTransactions.length === 0 ? (
+                          <p className="text-sm text-muted-foreground italic">No transactions yet.</p>
+                        ) : (
+                          <ul className="space-y-1.5">
+                            {recentTransactions.map((transaction) => (
+                              <li key={transaction.id} className="flex items-start justify-between gap-4 text-sm">
+                                <div className="min-w-0">
+                                  <p className="font-medium text-foreground truncate">
+                                    {formatTransactionDate(transaction.date)} - {transaction.description}
+                                  </p>
+                                  <p className="text-xs text-muted-foreground">
+                                    {transaction.category} - {transaction.mode}
+                                  </p>
+                                </div>
+                                <span
+                                  className={`shrink-0 font-semibold ${
+                                    transaction.type === "CASH_IN" ? "text-income" : "text-expense"
+                                  }`}
+                                >
+                                  {transaction.type === "CASH_IN" ? "+" : "-"}
+                                  {formatCurrency(transaction.amount)}
+                                </span>
+                              </li>
+                            ))}
+                          </ul>
+                        )}
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+              );
+            })}
           </div>
         ) : (
           <Card className="text-center py-12">
@@ -308,65 +347,6 @@ const Dashboard = () => {
               </Button>
             </CardContent>
           </Card>
-        )}
-
-        {/* Quick Stats */}
-        {hasCashbooks && (
-          <div className="mt-12">
-            <h3 className="text-xl font-semibold mb-6">Quick Overview</h3>
-            <div className="grid gap-4 md:grid-cols-3">
-              <Card>
-                <CardContent className="pt-6">
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <p className="text-sm text-muted-foreground">Total Balance</p>
-                      <p className="text-2xl font-bold text-balance">{formatCurrency(totalBalance)}</p>
-                    </div>
-                    <div className="p-3 rounded-lg bg-gradient-primary">
-                      <Wallet className="h-5 w-5 text-white" />
-                    </div>
-                  </div>
-                </CardContent>
-              </Card>
-
-              <Card>
-                <CardContent className="pt-6">
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <p className="text-sm text-muted-foreground">Active Cashbooks</p>
-                      <p className="text-2xl font-bold text-foreground">{cashbooks.length}</p>
-                    </div>
-                    <div className="p-3 rounded-lg bg-gradient-income">
-                      <TrendingUp className="h-5 w-5 text-white" />
-                    </div>
-                  </div>
-                </CardContent>
-              </Card>
-
-              <Card>
-                <CardContent className="pt-6">
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <p className="text-sm text-muted-foreground">This Month</p>
-                      <p
-                        className={`text-2xl font-bold ${
-                          currentMonthSummary.net >= 0 ? "text-income" : "text-expense"
-                        }`}
-                      >
-                        {formatCurrency(currentMonthSummary.net)}
-                      </p>
-                      <p className="text-xs text-muted-foreground mt-1">
-                        In: {formatCurrency(currentMonthSummary.cashIn)} · Out: {formatCurrency(currentMonthSummary.cashOut)}
-                      </p>
-                    </div>
-                    <div className="p-3 rounded-lg bg-gradient-expense">
-                      <TrendingUp className="h-5 w-5 text-white" />
-                    </div>
-                  </div>
-                </CardContent>
-              </Card>
-            </div>
-          </div>
         )}
       </main>
 
@@ -419,3 +399,10 @@ const Dashboard = () => {
 };
 
 export default Dashboard;
+
+
+
+
+
+
+

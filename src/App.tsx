@@ -10,6 +10,7 @@ import Dashboard from "./pages/Dashboard";
 import CashbookDetail from "./pages/CashbookDetail";
 import Reports from "./pages/Reports";
 import Settings from "./pages/Settings";
+import AccountSettings from "./pages/Account";
 import NotFound from "./pages/NotFound";
 import { CashbookProvider } from "@/context/CashbookContext";
 import { ThemeProvider } from "@/components/theme-provider";
@@ -60,6 +61,7 @@ const App = () => (
                 <Route path="/cashbook/:id" element={<ProtectedRoute><CashbookDetail /></ProtectedRoute>} />
                 <Route path="/reports" element={<ProtectedRoute><Reports /></ProtectedRoute>} />
                 <Route path="/settings" element={<ProtectedRoute><Settings /></ProtectedRoute>} />
+                <Route path="/account" element={<ProtectedRoute><AccountSettings /></ProtectedRoute>} />
                 {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
                 <Route path="*" element={<NotFound />} />
               </Routes>
@@ -72,3 +74,4 @@ const App = () => (
 );
 
 export default App;
+

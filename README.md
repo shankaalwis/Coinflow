@@ -1,6 +1,6 @@
-# SmartCash Ledger
+# Coinflow
 
-SmartCash Ledger is a professional finance tracker for personal and business cashflow. Use it to manage cashbooks, monitor income and expenses, and generate actionable insights.
+Coinflow is a professional finance tracker for personal and business cash flow. Use it to manage cashbooks, monitor income and expenses, and generate actionable insights.
 
 ## Getting Started
 

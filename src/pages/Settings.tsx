@@ -110,7 +110,13 @@ const Settings = () => {
                 <p className="text-sm text-muted-foreground">Manage your categories and payment modes</p>
               </div>
             </div>
-            <ThemeToggle />
+            <div className="flex items-center gap-2">
+              <Button variant="outline" onClick={() => navigate("/account")}>
+                <SettingsIcon className="h-4 w-4 mr-2" />
+                Account
+              </Button>
+              <ThemeToggle />
+            </div>
           </div>
         </div>
       </header>
@@ -329,3 +335,5 @@ const Settings = () => {
 };
 
 export default Settings;
+
+
