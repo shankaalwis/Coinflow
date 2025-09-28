@@ -1,5 +1,6 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
+import { formatDistanceToNow } from "date-fns";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
@@ -7,46 +8,74 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Plus, TrendingUp, LogOut, Wallet, ArrowRight } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
-
-// Mock data - replace with real API calls
-const mockCashbooks = [
-  {
-    id: "1",
-    name: "Personal",
-    balance: 2450.75,
-    lastActivity: "Today",
-  },
-  {
-    id: "2", 
-    name: "Business",
-    balance: 8920.50,
-    lastActivity: "2 days ago",
-  },
-];
+import { useCashbookContext } from "@/context/CashbookContext";
 
 const Dashboard = () => {
   const [cashbookName, setCashbookName] = useState("");
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const navigate = useNavigate();
   const { toast } = useToast();
+  const { cashbooks, createCashbook, transactions } = useCashbookContext();
+
+  const totalBalance = useMemo(
+    () => cashbooks.reduce((sum, cashbook) => sum + cashbook.balance, 0),
+    [cashbooks],
+  );
+
+  const currentMonthSummary = useMemo(() => {
+    const now = new Date();
+    const monthTransactions = transactions.filter((transaction) => {
+      const date = new Date(transaction.date);
+      return date.getFullYear() === now.getFullYear() && date.getMonth() === now.getMonth();
+    });
+
+    const cashIn = monthTransactions
+      .filter((transaction) => transaction.type === "CASH_IN")
+      .reduce((total, transaction) => total + transaction.amount, 0);
+
+    const cashOut = monthTransactions
+      .filter((transaction) => transaction.type === "CASH_OUT")
+      .reduce((total, transaction) => total + transaction.amount, 0);
+
+    return {
+      cashIn,
+      cashOut,
+      net: cashIn - cashOut,
+    };
+  }, [transactions]);
+
+  const formatCurrency = (amount: number) =>
+    new Intl.NumberFormat("en-US", {
+      style: "currency",
+      currency: "USD",
+    }).format(amount);
+
+  const getLastActivityLabel = (isoDate: string) => {
+    if (!isoDate) {
+      return "No activity yet";
+    }
+
+    const date = new Date(isoDate);
+    if (Number.isNaN(date.getTime())) {
+      return "No activity yet";
+    }
+
+    return formatDistanceToNow(date, { addSuffix: true });
+  };
 
   const handleCreateCashbook = (e: React.FormEvent) => {
     e.preventDefault();
-    if (cashbookName.trim()) {
+    const trimmed = cashbookName.trim();
+
+    if (trimmed) {
+      const cashbook = createCashbook(trimmed);
       toast({
         title: "Cashbook created",
-        description: `"${cashbookName}" has been created successfully.`,
+        description: `"${cashbook.name}" has been created successfully.`,
       });
       setCashbookName("");
       setIsDialogOpen(false);
     }
-  };
-
-  const formatCurrency = (amount: number) => {
-    return new Intl.NumberFormat('en-US', {
-      style: 'currency',
-      currency: 'USD',
-    }).format(amount);
   };
 
   const handleLogout = () => {
@@ -56,6 +85,8 @@ const Dashboard = () => {
     });
     navigate("/login");
   };
+
+  const hasCashbooks = cashbooks.length > 0;
 
   return (
     <div className="min-h-screen bg-background">
@@ -72,7 +103,7 @@ const Dashboard = () => {
                 <p className="text-sm text-muted-foreground">Financial Management Dashboard</p>
               </div>
             </div>
-            
+
             <div className="flex items-center gap-4">
               <Button variant="outline" onClick={() => navigate("/reports")}>
                 Reports
@@ -97,7 +128,7 @@ const Dashboard = () => {
             <h2 className="text-3xl font-bold text-foreground mb-2">Your Cashbooks</h2>
             <p className="text-muted-foreground">Manage your financial accounts</p>
           </div>
-          
+
           <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
             <DialogTrigger asChild>
               <Button className="gap-2">
@@ -135,29 +166,11 @@ const Dashboard = () => {
         </div>
 
         {/* Cashbooks Grid */}
-        {mockCashbooks.length === 0 ? (
-          <Card className="text-center py-12">
-            <CardContent>
-              <Wallet className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
-              <h3 className="text-lg font-semibold mb-2">No cashbooks yet</h3>
-              <p className="text-muted-foreground mb-4">
-                Create your first cashbook to start tracking your finances.
-              </p>
-              <Dialog>
-                <DialogTrigger asChild>
-                  <Button>
-                    <Plus className="h-4 w-4 mr-2" />
-                    Create Your First Cashbook
-                  </Button>
-                </DialogTrigger>
-              </Dialog>
-            </CardContent>
-          </Card>
-        ) : (
+        {hasCashbooks ? (
           <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
-            {mockCashbooks.map((cashbook) => (
-              <Card 
-                key={cashbook.id} 
+            {cashbooks.map((cashbook) => (
+              <Card
+                key={cashbook.id}
                 className="shadow-card hover:shadow-elevated transition-all duration-200 cursor-pointer group"
                 onClick={() => navigate(`/cashbook/${cashbook.id}`)}
               >
@@ -171,16 +184,18 @@ const Dashboard = () => {
                   <div className="space-y-4">
                     <div>
                       <p className="text-sm text-muted-foreground mb-1">Current Balance</p>
-                      <p className={`text-3xl font-bold ${
-                        cashbook.balance >= 0 ? 'text-income' : 'text-expense'
-                      }`}>
+                      <p
+                        className={`text-3xl font-bold ${
+                          cashbook.balance >= 0 ? "text-income" : "text-expense"
+                        }`}
+                      >
                         {formatCurrency(cashbook.balance)}
                       </p>
                     </div>
-                    
+
                     <div className="pt-4 border-t">
                       <p className="text-sm text-muted-foreground">
-                        Last activity: {cashbook.lastActivity}
+                        Last activity: {getLastActivityLabel(cashbook.lastActivity)}
                       </p>
                     </div>
                   </div>
@@ -188,10 +203,24 @@ const Dashboard = () => {
               </Card>
             ))}
           </div>
+        ) : (
+          <Card className="text-center py-12">
+            <CardContent>
+              <Wallet className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
+              <h3 className="text-lg font-semibold mb-2">No cashbooks yet</h3>
+              <p className="text-muted-foreground mb-4">
+                Create your first cashbook to start tracking your finances.
+              </p>
+              <Button onClick={() => setIsDialogOpen(true)}>
+                <Plus className="h-4 w-4 mr-2" />
+                Create Your First Cashbook
+              </Button>
+            </CardContent>
+          </Card>
         )}
 
         {/* Quick Stats */}
-        {mockCashbooks.length > 0 && (
+        {hasCashbooks && (
           <div className="mt-12">
             <h3 className="text-xl font-semibold mb-6">Quick Overview</h3>
             <div className="grid gap-4 md:grid-cols-3">
@@ -200,9 +229,7 @@ const Dashboard = () => {
                   <div className="flex items-center justify-between">
                     <div>
                       <p className="text-sm text-muted-foreground">Total Balance</p>
-                      <p className="text-2xl font-bold text-balance">
-                        {formatCurrency(mockCashbooks.reduce((sum, cb) => sum + cb.balance, 0))}
-                      </p>
+                      <p className="text-2xl font-bold text-balance">{formatCurrency(totalBalance)}</p>
                     </div>
                     <div className="p-3 rounded-lg bg-gradient-primary">
                       <Wallet className="h-5 w-5 text-white" />
@@ -210,13 +237,13 @@ const Dashboard = () => {
                   </div>
                 </CardContent>
               </Card>
-              
+
               <Card>
                 <CardContent className="pt-6">
                   <div className="flex items-center justify-between">
                     <div>
                       <p className="text-sm text-muted-foreground">Active Cashbooks</p>
-                      <p className="text-2xl font-bold text-foreground">{mockCashbooks.length}</p>
+                      <p className="text-2xl font-bold text-foreground">{cashbooks.length}</p>
                     </div>
                     <div className="p-3 rounded-lg bg-gradient-income">
                       <TrendingUp className="h-5 w-5 text-white" />
@@ -230,7 +257,16 @@ const Dashboard = () => {
                   <div className="flex items-center justify-between">
                     <div>
                       <p className="text-sm text-muted-foreground">This Month</p>
-                      <p className="text-2xl font-bold text-income">+$1,240</p>
+                      <p
+                        className={`text-2xl font-bold ${
+                          currentMonthSummary.net >= 0 ? "text-income" : "text-expense"
+                        }`}
+                      >
+                        {formatCurrency(currentMonthSummary.net)}
+                      </p>
+                      <p className="text-xs text-muted-foreground mt-1">
+                        In: {formatCurrency(currentMonthSummary.cashIn)} · Out: {formatCurrency(currentMonthSummary.cashOut)}
+                      </p>
                     </div>
                     <div className="p-3 rounded-lg bg-gradient-expense">
                       <TrendingUp className="h-5 w-5 text-white" />

@@ -8,27 +8,20 @@ import { Label } from "@/components/ui/label";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { ArrowLeft, Plus, Pencil, Trash2, Settings as SettingsIcon, Tag, CreditCard } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
-
-// Mock data
-const mockCategories = [
-  { id: "1", name: "Salary" },
-  { id: "2", name: "Groceries" },
-  { id: "3", name: "Rent" },
-  { id: "4", name: "Utilities" },
-  { id: "5", name: "Entertainment" },
-];
-
-const mockModes = [
-  { id: "1", name: "Cash" },
-  { id: "2", name: "Bank Transfer" },
-  { id: "3", name: "Card" },
-  { id: "4", name: "Digital Wallet" },
-];
+import { useCashbookContext } from "@/context/CashbookContext";
 
 const Settings = () => {
   const navigate = useNavigate();
   const { toast } = useToast();
-  
+  const {
+    categories,
+    paymentModes,
+    addCategory,
+    removeCategory,
+    addPaymentMode,
+    removePaymentMode,
+  } = useCashbookContext();
+
   const [categoryName, setCategoryName] = useState("");
   const [modeName, setModeName] = useState("");
   const [isCategoryDialogOpen, setIsCategoryDialogOpen] = useState(false);
@@ -36,39 +29,67 @@ const Settings = () => {
 
   const handleAddCategory = (e: React.FormEvent) => {
     e.preventDefault();
-    if (categoryName.trim()) {
-      toast({
-        title: "Category added",
-        description: `"${categoryName}" has been added to your categories.`,
-      });
-      setCategoryName("");
-      setIsCategoryDialogOpen(false);
+    const trimmed = categoryName.trim();
+    if (!trimmed) {
+      return;
     }
+
+    const exists = categories.some((category) => category.name.toLowerCase() === trimmed.toLowerCase());
+    if (exists) {
+      toast({
+        title: "Category exists",
+        description: `"${trimmed}" is already in your categories.`,
+      });
+      return;
+    }
+
+    addCategory(trimmed);
+    toast({
+      title: "Category added",
+      description: `"${trimmed}" has been added to your categories.`,
+    });
+    setCategoryName("");
+    setIsCategoryDialogOpen(false);
   };
 
   const handleAddMode = (e: React.FormEvent) => {
     e.preventDefault();
-    if (modeName.trim()) {
-      toast({
-        title: "Payment mode added",
-        description: `"${modeName}" has been added to your payment modes.`,
-      });
-      setModeName("");
-      setIsModeDialogOpen(false);
+    const trimmed = modeName.trim();
+    if (!trimmed) {
+      return;
     }
+
+    const exists = paymentModes.some((mode) => mode.name.toLowerCase() === trimmed.toLowerCase());
+    if (exists) {
+      toast({
+        title: "Payment mode exists",
+        description: `"${trimmed}" is already in your payment modes.`,
+      });
+      return;
+    }
+
+    addPaymentMode(trimmed);
+    toast({
+      title: "Payment mode added",
+      description: `"${trimmed}" has been added to your payment modes.`,
+    });
+    setModeName("");
+    setIsModeDialogOpen(false);
   };
 
-  const handleDeleteCategory = (categoryName: string) => {
+  const handleDeleteCategory = (id: string, name: string) => {
+    removeCategory(id);
     toast({
       title: "Category deleted",
-      description: `"${categoryName}" has been removed from your categories.`,
+      description: `"${name}" has been removed from your categories.`,
     });
   };
 
-  const handleDeleteMode = (modeName: string) => {
+  const handleDeleteMode = (id: string, name: string) => {
+    removePaymentMode(id);
     toast({
-      title: "Payment mode deleted", 
-      description: `"${modeName}" has been removed from your payment modes.`,
+      title: "Payment mode deleted",
+      description: `"${name}" has been removed from your payment modes.`,
     });
   };
 
@@ -148,7 +169,7 @@ const Settings = () => {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {mockCategories.map((category) => (
+                  {categories.map((category) => (
                     <TableRow key={category.id}>
                       <TableCell className="font-medium">{category.name}</TableCell>
                       <TableCell>
@@ -156,10 +177,10 @@ const Settings = () => {
                           <Button variant="ghost" size="sm">
                             <Pencil className="h-4 w-4" />
                           </Button>
-                          <Button 
-                            variant="ghost" 
+                          <Button
+                            variant="ghost"
                             size="sm"
-                            onClick={() => handleDeleteCategory(category.name)}
+                            onClick={() => handleDeleteCategory(category.id, category.name)}
                           >
                             <Trash2 className="h-4 w-4 text-destructive" />
                           </Button>
@@ -167,6 +188,13 @@ const Settings = () => {
                       </TableCell>
                     </TableRow>
                   ))}
+                  {categories.length === 0 && (
+                    <TableRow>
+                      <TableCell colSpan={2} className="text-center text-muted-foreground">
+                        No categories yet. Add your first category.
+                      </TableCell>
+                    </TableRow>
+                  )}
                 </TableBody>
               </Table>
             </CardContent>
@@ -225,7 +253,7 @@ const Settings = () => {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {mockModes.map((mode) => (
+                  {paymentModes.map((mode) => (
                     <TableRow key={mode.id}>
                       <TableCell className="font-medium">{mode.name}</TableCell>
                       <TableCell>
@@ -233,10 +261,10 @@ const Settings = () => {
                           <Button variant="ghost" size="sm">
                             <Pencil className="h-4 w-4" />
                           </Button>
-                          <Button 
-                            variant="ghost" 
+                          <Button
+                            variant="ghost"
                             size="sm"
-                            onClick={() => handleDeleteMode(mode.name)}
+                            onClick={() => handleDeleteMode(mode.id, mode.name)}
                           >
                             <Trash2 className="h-4 w-4 text-destructive" />
                           </Button>
@@ -244,6 +272,13 @@ const Settings = () => {
                       </TableCell>
                     </TableRow>
                   ))}
+                  {paymentModes.length === 0 && (
+                    <TableRow>
+                      <TableCell colSpan={2} className="text-center text-muted-foreground">
+                        No payment modes yet. Add your first payment mode.
+                      </TableCell>
+                    </TableRow>
+                  )}
                 </TableBody>
               </Table>
             </CardContent>
@@ -267,7 +302,7 @@ const Settings = () => {
                 </div>
                 <Button variant="outline">Configure</Button>
               </div>
-              
+
               <div className="flex items-center justify-between p-4 border rounded-lg">
                 <div>
                   <h4 className="font-medium">Data Backup</h4>
