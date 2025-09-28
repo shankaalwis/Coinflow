@@ -8,6 +8,7 @@ import { Label } from "@/components/ui/label";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { ArrowLeft, Plus, Pencil, Trash2, Settings as SettingsIcon, Tag, CreditCard } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
+import { ThemeToggle } from "@/components/theme-toggle";
 import { useCashbookContext } from "@/context/CashbookContext";
 
 const Settings = () => {
@@ -109,6 +110,7 @@ const Settings = () => {
                 <p className="text-sm text-muted-foreground">Manage your categories and payment modes</p>
               </div>
             </div>
+            <ThemeToggle />
           </div>
         </div>
       </header>

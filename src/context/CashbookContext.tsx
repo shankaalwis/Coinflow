@@ -47,6 +47,12 @@ type TransactionInput = {
   date: string;
 };
 
+type TransactionUpdate = Partial<TransactionInput> & { cashbookId?: string };
+
+type CashbookUpdate = {
+  name?: string;
+};
+
 type PersistedState = {
   cashbooks: Cashbook[];
   transactions: Transaction[];
@@ -60,9 +66,13 @@ type CashbookContextValue = {
   categories: Category[];
   paymentModes: PaymentMode[];
   createCashbook: (name: string) => Cashbook;
+  updateCashbook: (id: string, updates: CashbookUpdate) => void;
+  deleteCashbook: (id: string) => void;
   getCashbookById: (id: string) => Cashbook | undefined;
   getTransactionsForCashbook: (cashbookId: string) => Transaction[];
   addTransaction: (cashbookId: string, input: TransactionInput) => void;
+  updateTransaction: (id: string, updates: TransactionUpdate) => void;
+  deleteTransaction: (id: string) => void;
   addCategory: (name: string) => void;
   removeCategory: (id: string) => void;
   addPaymentMode: (name: string) => void;
@@ -81,9 +91,7 @@ const generateId = () =>
 const calculateBalance = (cashbookId: string, items: Transaction[]) =>
   items
     .filter((item) => item.cashbookId === cashbookId)
-    .reduce((total, item) => {
-      return total + (item.type === "CASH_IN" ? item.amount : -item.amount);
-    }, 0);
+    .reduce((total, item) => total + (item.type === "CASH_IN" ? item.amount : -item.amount), 0);
 
 const getLatestActivity = (cashbookId: string, items: Transaction[]) => {
   const latest = items
@@ -231,6 +239,16 @@ export const CashbookProvider = ({ children }: { children: ReactNode }) => {
     window.localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
   }, [cashbooks, transactions, categories, paymentModes]);
 
+  useEffect(() => {
+    setCashbooks((prev) =>
+      prev.map((cashbook) => ({
+        ...cashbook,
+        balance: calculateBalance(cashbook.id, transactions),
+        lastActivity: getLatestActivity(cashbook.id, transactions),
+      })),
+    );
+  }, [transactions]);
+
   const getCashbookById = useCallback(
     (id: string) => cashbooks.find((cashbook) => cashbook.id === id),
     [cashbooks],
@@ -241,56 +259,70 @@ export const CashbookProvider = ({ children }: { children: ReactNode }) => {
     [transactions],
   );
 
-  const createCashbook = useCallback(
-    (name: string) => {
-      const id = generateId();
-      const now = new Date().toISOString();
+  const createCashbook = useCallback((name: string) => {
+    const id = generateId();
+    const now = new Date().toISOString();
 
-      const newCashbook: Cashbook = {
+    const newCashbook: Cashbook = {
+      id,
+      name,
+      balance: 0,
+      lastActivity: now,
+    };
+
+    setCashbooks((prev) => [...prev, newCashbook]);
+
+    return newCashbook;
+  }, []);
+
+  const updateCashbook = useCallback((id: string, updates: CashbookUpdate) => {
+    setCashbooks((prev) =>
+      prev.map((cashbook) =>
+        cashbook.id === id
+          ? {
+              ...cashbook,
+              ...updates,
+            }
+          : cashbook,
+      ),
+    );
+  }, []);
+
+  const deleteCashbook = useCallback((id: string) => {
+    setCashbooks((prev) => prev.filter((cashbook) => cashbook.id !== id));
+    setTransactions((prev) => prev.filter((transaction) => transaction.cashbookId !== id));
+  }, []);
+
+  const addTransaction = useCallback((cashbookId: string, input: TransactionInput) => {
+    setTransactions((prev) => {
+      const id = generateId();
+      const transaction: Transaction = {
         id,
-        name,
-        balance: 0,
-        lastActivity: now,
+        cashbookId,
+        ...input,
       };
 
-      setCashbooks((prev) => [...prev, newCashbook]);
+      return [...prev, transaction];
+    });
+  }, []);
 
-      return newCashbook;
-    },
-    [],
-  );
+  const updateTransaction = useCallback((id: string, updates: TransactionUpdate) => {
+    setTransactions((prev) =>
+      prev.map((transaction) =>
+        transaction.id === id
+          ? {
+              ...transaction,
+              ...updates,
+              cashbookId: updates.cashbookId ?? transaction.cashbookId,
+            }
+          : transaction,
+      ),
+    );
+  }, []);
 
-  const addTransaction = useCallback(
-    (cashbookId: string, input: TransactionInput) => {
-      setTransactions((prev) => {
-        const id = generateId();
-        const transaction: Transaction = {
-          id,
-          cashbookId,
-          ...input,
-        };
-
-        return [...prev, transaction];
-      });
-
-      setCashbooks((prev) =>
-        prev.map((cashbook) => {
-          if (cashbook.id !== cashbookId) {
-            return cashbook;
-          }
-
-          const amountDelta = input.type === "CASH_IN" ? input.amount : -input.amount;
-
-          return {
-            ...cashbook,
-            balance: cashbook.balance + amountDelta,
-            lastActivity: input.date,
-          };
-        }),
-      );
-    },
-    [],
-  );
+  const deleteTransaction = useCallback((id: string) => {
+    setTransactions((prev) => prev.filter((transaction) => transaction.id !== id));
+  }, []);
 
   const addCategory = useCallback((name: string) => {
     setCategories((prev) => {
@@ -329,9 +361,13 @@ export const CashbookProvider = ({ children }: { children: ReactNode }) => {
       categories,
       paymentModes,
       createCashbook,
+      updateCashbook,
+      deleteCashbook,
       getCashbookById,
       getTransactionsForCashbook,
       addTransaction,
+      updateTransaction,
+      deleteTransaction,
       addCategory,
       removeCategory,
       addPaymentMode,
@@ -343,9 +379,13 @@ export const CashbookProvider = ({ children }: { children: ReactNode }) => {
       categories,
       paymentModes,
       createCashbook,
+      updateCashbook,
+      deleteCashbook,
       getCashbookById,
       getTransactionsForCashbook,
       addTransaction,
+      updateTransaction,
+      deleteTransaction,
       addCategory,
       removeCategory,
       addPaymentMode,
