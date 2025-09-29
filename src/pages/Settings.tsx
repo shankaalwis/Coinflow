@@ -28,7 +28,7 @@ const Settings = () => {
   const [isCategoryDialogOpen, setIsCategoryDialogOpen] = useState(false);
   const [isModeDialogOpen, setIsModeDialogOpen] = useState(false);
 
-  const handleAddCategory = (e: React.FormEvent) => {
+  const handleAddCategory = async (e: React.FormEvent) => {
     e.preventDefault();
     const trimmed = categoryName.trim();
     if (!trimmed) {
@@ -44,16 +44,25 @@ const Settings = () => {
       return;
     }
 
-    addCategory(trimmed);
-    toast({
-      title: "Category added",
-      description: `"${trimmed}" has been added to your categories.`,
-    });
-    setCategoryName("");
-    setIsCategoryDialogOpen(false);
+    try {
+      await addCategory(trimmed);
+      toast({
+        title: "Category added",
+        description: `"${trimmed}" has been added to your categories.`,
+      });
+      setCategoryName("");
+      setIsCategoryDialogOpen(false);
+    } catch (error) {
+      console.error(error);
+      toast({
+        title: "Unable to add category",
+        description: error instanceof Error ? error.message : "Please try again later.",
+        variant: "destructive",
+      });
+    }
   };
 
-  const handleAddMode = (e: React.FormEvent) => {
+  const handleAddMode = async (e: React.FormEvent) => {
     e.preventDefault();
     const trimmed = modeName.trim();
     if (!trimmed) {
@@ -69,29 +78,56 @@ const Settings = () => {
       return;
     }
 
-    addPaymentMode(trimmed);
-    toast({
-      title: "Payment mode added",
-      description: `"${trimmed}" has been added to your payment modes.`,
-    });
-    setModeName("");
-    setIsModeDialogOpen(false);
+    try {
+      await addPaymentMode(trimmed);
+      toast({
+        title: "Payment mode added",
+        description: `"${trimmed}" has been added to your payment modes.`,
+      });
+      setModeName("");
+      setIsModeDialogOpen(false);
+    } catch (error) {
+      console.error(error);
+      toast({
+        title: "Unable to add payment mode",
+        description: error instanceof Error ? error.message : "Please try again later.",
+        variant: "destructive",
+      });
+    }
   };
 
-  const handleDeleteCategory = (id: string, name: string) => {
-    removeCategory(id);
-    toast({
-      title: "Category deleted",
-      description: `"${name}" has been removed from your categories.`,
-    });
+  const handleDeleteCategory = async (id: string, name: string) => {
+    try {
+      await removeCategory(id);
+      toast({
+        title: "Category deleted",
+        description: `"${name}" has been removed from your categories.`,
+      });
+    } catch (error) {
+      console.error(error);
+      toast({
+        title: "Unable to delete category",
+        description: error instanceof Error ? error.message : "Please try again later.",
+        variant: "destructive",
+      });
+    }
   };
 
-  const handleDeleteMode = (id: string, name: string) => {
-    removePaymentMode(id);
-    toast({
-      title: "Payment mode deleted",
-      description: `"${name}" has been removed from your payment modes.`,
-    });
+  const handleDeleteMode = async (id: string, name: string) => {
+    try {
+      await removePaymentMode(id);
+      toast({
+        title: "Payment mode deleted",
+        description: `"${name}" has been removed from your payment modes.`,
+      });
+    } catch (error) {
+      console.error(error);
+      toast({
+        title: "Unable to delete payment mode",
+        description: error instanceof Error ? error.message : "Please try again later.",
+        variant: "destructive",
+      });
+    }
   };
 
   return (

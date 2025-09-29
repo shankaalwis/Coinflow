@@ -30,17 +30,18 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Plus, TrendingUp, LogOut, Wallet, EllipsisVertical, Pencil, Trash2, Settings as SettingsIcon } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { useCashbookContext } from "@/context/CashbookContext";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { useAuth } from "@/hooks/useAuth";
+import { DEFAULT_CURRENCY, SUPPORTED_CURRENCIES } from "@/constants/currencies";
 
-
-const formatCurrency = (amount: number) =>
-  new Intl.NumberFormat("en-US", {
+const formatAmount = (amount: number, currency: string) =>
+  new Intl.NumberFormat(undefined, {
     style: "currency",
-    currency: "USD",
+    currency,
   }).format(amount);
 
 const formatTransactionDate = (iso: string) =>
@@ -51,6 +52,7 @@ const formatTransactionDate = (iso: string) =>
 
 const Dashboard = () => {
   const [cashbookName, setCashbookName] = useState("");
+  const [cashbookCurrency, setCashbookCurrency] = useState(DEFAULT_CURRENCY);
   const [isCreateDialogOpen, setIsCreateDialogOpen] = useState(false);
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
   const [editCashbookId, setEditCashbookId] = useState<string | null>(null);
@@ -91,22 +93,34 @@ const Dashboard = () => {
     return formatDistanceToNow(date, { addSuffix: true });
   };
 
-  const handleCreateCashbook = (e: React.FormEvent) => {
+  const handleCreateCashbook = async (e: React.FormEvent) => {
     e.preventDefault();
     const trimmed = cashbookName.trim();
 
-    if (trimmed) {
-      const cashbook = createCashbook(trimmed);
+    if (!trimmed) {
+      return;
+    }
+
+    try {
+      const cashbook = await createCashbook(trimmed, cashbookCurrency);
       toast({
         title: "Cashbook created",
         description: `"${cashbook.name}" has been created successfully.`,
       });
       setCashbookName("");
+      setCashbookCurrency(DEFAULT_CURRENCY);
       setIsCreateDialogOpen(false);
+    } catch (error) {
+      console.error(error);
+      toast({
+        title: "Unable to create cashbook",
+        description: error instanceof Error ? error.message : "Please try again later.",
+        variant: "destructive",
+      });
     }
   };
 
-  const handleEditCashbook = (e: React.FormEvent) => {
+  const handleEditCashbook = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!editCashbookId) {
       return;
@@ -117,21 +131,40 @@ const Dashboard = () => {
       return;
     }
 
-    updateCashbook(editCashbookId, { name: trimmed });
-    toast({ title: "Cashbook updated", description: `Cashbook renamed to "${trimmed}".` });
-    setIsEditDialogOpen(false);
-    setEditCashbookId(null);
-    setEditCashbookName("");
+    try {
+      await updateCashbook(editCashbookId, { name: trimmed });
+      toast({ title: "Cashbook updated", description: `Cashbook renamed to "${trimmed}".` });
+      setIsEditDialogOpen(false);
+      setEditCashbookId(null);
+      setEditCashbookName("");
+    } catch (error) {
+      console.error(error);
+      toast({
+        title: "Unable to update cashbook",
+        description: error instanceof Error ? error.message : "Please try again later.",
+        variant: "destructive",
+      });
+    }
   };
 
-  const handleConfirmDelete = () => {
+  const handleConfirmDelete = async () => {
     if (!cashbookToDelete) {
       return;
     }
 
-    deleteCashbook(cashbookToDelete.id);
-    toast({ title: "Cashbook removed", description: `"${cashbookToDelete.name}" has been deleted.` });
-    setCashbookToDelete(null);
+    try {
+      await deleteCashbook(cashbookToDelete.id);
+      toast({ title: "Cashbook removed", description: `"${cashbookToDelete.name}" has been deleted.` });
+    } catch (error) {
+      console.error(error);
+      toast({
+        title: "Unable to delete cashbook",
+        description: error instanceof Error ? error.message : "Please try again later.",
+        variant: "destructive",
+      });
+    } finally {
+      setCashbookToDelete(null);
+    }
   };
 
   const handleLogout = async () => {
@@ -184,7 +217,16 @@ const Dashboard = () => {
             <p className="text-muted-foreground">Manage your financial accounts</p>
           </div>
 
-          <Dialog open={isCreateDialogOpen} onOpenChange={setIsCreateDialogOpen}>
+          <Dialog
+            open={isCreateDialogOpen}
+            onOpenChange={(open) => {
+              setIsCreateDialogOpen(open);
+              if (!open) {
+                setCashbookName("");
+                setCashbookCurrency(DEFAULT_CURRENCY);
+              }
+            }}
+          >
             <DialogTrigger asChild>
               <Button className="gap-2">
                 <Plus className="h-4 w-4" />
@@ -208,6 +250,21 @@ const Dashboard = () => {
                     onChange={(e) => setCashbookName(e.target.value)}
                     required
                   />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="currency">Currency</Label>
+                  <Select value={cashbookCurrency} onValueChange={setCashbookCurrency}>
+                    <SelectTrigger id="currency">
+                      <SelectValue placeholder="Select currency" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {SUPPORTED_CURRENCIES.map((currency) => (
+                        <SelectItem key={currency.code} value={currency.code}>
+                          {currency.label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
                 </div>
                 <div className="flex justify-end gap-2">
                   <Button type="button" variant="outline" onClick={() => setIsCreateDialogOpen(false)}>
@@ -294,7 +351,7 @@ const Dashboard = () => {
                             cashbook.balance >= 0 ? "text-income" : "text-expense"
                           }`}
                         >
-                          {formatCurrency(cashbook.balance)}
+                          {formatAmount(cashbook.balance, cashbook.currency)}
                         </p>
                       </div>
 
@@ -320,7 +377,7 @@ const Dashboard = () => {
                                   }`}
                                 >
                                   {transaction.type === "CASH_IN" ? "+" : "-"}
-                                  {formatCurrency(transaction.amount)}
+                                  {formatAmount(transaction.amount, cashbook.currency)}
                                 </span>
                               </li>
                             ))}
