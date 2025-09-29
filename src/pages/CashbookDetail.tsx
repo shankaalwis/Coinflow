@@ -41,6 +41,7 @@ import {
 import { useToast } from "@/hooks/use-toast";
 import { useCashbookContext } from "@/context/CashbookContext";
 import { ThemeToggle } from "@/components/theme-toggle";
+import { DEFAULT_CURRENCY } from "@/constants/currencies";
 
 type TransactionFormState = {
   type: "CASH_IN" | "CASH_OUT";
@@ -101,11 +102,12 @@ const CashbookDetail = () => {
     }));
   }, [categories, paymentModes]);
 
-  const formatCurrency = (amount: number) =>
-    new Intl.NumberFormat("en-US", {
-      style: "currency",
-      currency: "USD",
-    }).format(amount);
+  const currencyFormatter = useMemo(() => new Intl.NumberFormat(undefined, {
+    style: "currency",
+    currency: cashbook?.currency ?? DEFAULT_CURRENCY,
+  }), [cashbook?.currency]);
+
+  const formatCurrency = (amount: number) => currencyFormatter.format(amount);
 
   const formatDateTime = (date: string) =>
     new Date(date).toLocaleString("en-US", {
@@ -172,7 +174,7 @@ const CashbookDetail = () => {
     setDialogMode("create");
   };
 
-  const handleSubmitTransaction = (e: React.FormEvent) => {
+  const handleSubmitTransaction = async (e: React.FormEvent) => {
     e.preventDefault();
 
     if (!cashbook) {
@@ -188,36 +190,45 @@ const CashbookDetail = () => {
 
     const isoDate = new Date(transactionForm.date).toISOString();
 
-    if (dialogMode === "edit" && editingTransactionId) {
-      updateTransaction(editingTransactionId, {
-        type: transactionForm.type,
-        amount: amountValue,
-        description: transactionForm.description.trim(),
-        category: transactionForm.category,
-        mode: transactionForm.mode,
-        date: isoDate,
-      });
+    try {
+      if (dialogMode === "edit" && editingTransactionId) {
+        await updateTransaction(editingTransactionId, {
+          type: transactionForm.type,
+          amount: amountValue,
+          description: transactionForm.description.trim(),
+          category: transactionForm.category,
+          mode: transactionForm.mode,
+          date: isoDate,
+        });
+        toast({
+          title: "Transaction updated",
+          description: `${transactionForm.type === "CASH_IN" ? "Income" : "Expense"} updated successfully.`,
+        });
+      } else {
+        await addTransaction(cashbook.id, {
+          type: transactionForm.type,
+          amount: amountValue,
+          description: transactionForm.description.trim(),
+          category: transactionForm.category,
+          mode: transactionForm.mode,
+          date: isoDate,
+        });
+        toast({
+          title: "Transaction added",
+          description: `${transactionForm.type === "CASH_IN" ? "Income" : "Expense"} of ${formatCurrency(amountValue)} recorded for "${cashbook.name}".`,
+        });
+      }
+
+      resetForm();
+      setIsDialogOpen(false);
+    } catch (error) {
+      console.error(error);
       toast({
-        title: "Transaction updated",
-        description: `${transactionForm.type === "CASH_IN" ? "Income" : "Expense"} updated successfully.`,
-      });
-    } else {
-      addTransaction(cashbook.id, {
-        type: transactionForm.type,
-        amount: amountValue,
-        description: transactionForm.description.trim(),
-        category: transactionForm.category,
-        mode: transactionForm.mode,
-        date: isoDate,
-      });
-      toast({
-        title: "Transaction added",
-        description: `${transactionForm.type === "CASH_IN" ? "Income" : "Expense"} of ${formatCurrency(amountValue)} recorded for "${cashbook.name}".`,
+        title: "Unable to save transaction",
+        description: error instanceof Error ? error.message : "Please try again later.",
+        variant: "destructive",
       });
     }
-
-    resetForm();
-    setIsDialogOpen(false);
   };
 
   const handleEditTransaction = (transactionId: string) => {
@@ -692,10 +703,22 @@ const CashbookDetail = () => {
             <AlertDialogCancel>Cancel</AlertDialogCancel>
             <AlertDialogAction
               className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-              onClick={() => {
-                if (transactionToDelete) {
-                  deleteTransaction(transactionToDelete.id);
-                  toast({ title: "Transaction deleted", description: "The transaction has been removed." });
+              onClick={async () => {
+                if (!transactionToDelete) {
+                  return;
+                }
+
+                try {
+                  await deleteTransaction(transactionToDelete.id);
+                  toast({ title: "Transaction deleted", description: "Transaction removed successfully." });
+                } catch (error) {
+                  console.error(error);
+                  toast({
+                    title: "Unable to delete transaction",
+                    description: error instanceof Error ? error.message : "Please try again later.",
+                    variant: "destructive",
+                  });
+                } finally {
                   setTransactionToDelete(null);
                 }
               }}

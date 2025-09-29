@@ -10,6 +10,7 @@ import { ArrowLeft, Download, FileText, TrendingUp, TrendingDown, Settings as Se
 import { useToast } from "@/hooks/use-toast";
 import { useCashbookContext } from "@/context/CashbookContext";
 import { ThemeToggle } from "@/components/theme-toggle";
+import { DEFAULT_CURRENCY } from "@/constants/currencies";
 import jsPDF from "jspdf";
 
 type ReportFilters = {
@@ -69,27 +70,90 @@ const Reports = () => {
     return index;
   }, [cashbooks]);
 
-  const summary = useMemo(() => {
-    const totalCashIn = filteredTransactions
-      .filter((transaction) => transaction.type === "CASH_IN")
-      .reduce((total, transaction) => total + transaction.amount, 0);
+  const cashbookCurrencies = useMemo(() => {
+    const index = new Map<string, string>();
+    cashbooks.forEach((cashbook) => index.set(cashbook.id, cashbook.currency));
+    return index;
+  }, [cashbooks]);
 
-    const totalCashOut = filteredTransactions
-      .filter((transaction) => transaction.type === "CASH_OUT")
-      .reduce((total, transaction) => total + transaction.amount, 0);
+  const summary = useMemo(() => {
+    if (!filteredTransactions.length) {
+      return {
+        entries: [],
+        singleCurrency: null as null | { currency: string; cashIn: number; cashOut: number; net: number },
+      };
+    }
+
+    const totals = new Map<string, { cashIn: number; cashOut: number }>();
+
+    filteredTransactions.forEach((transaction) => {
+      const currency = cashbookCurrencies.get(transaction.cashbookId) ?? DEFAULT_CURRENCY;
+      const current = totals.get(currency) ?? { cashIn: 0, cashOut: 0 };
+
+      if (transaction.type === "CASH_IN") {
+        current.cashIn += transaction.amount;
+      } else {
+        current.cashOut += transaction.amount;
+      }
+
+      totals.set(currency, current);
+    });
+
+    const entries = Array.from(totals.entries()).map(([currency, value]) => ({
+      currency,
+      cashIn: value.cashIn,
+      cashOut: value.cashOut,
+      net: value.cashIn - value.cashOut,
+    }));
 
     return {
-      totalCashIn,
-      totalCashOut,
-      netBalance: totalCashIn - totalCashOut,
+      entries,
+      singleCurrency: entries.length === 1 ? entries[0] : null,
     };
-  }, [filteredTransactions]);
+  }, [filteredTransactions, cashbookCurrencies]);
 
-  const formatCurrency = (amount: number) =>
-    new Intl.NumberFormat("en-US", {
-      style: "currency",
-      currency: "USD",
-    }).format(amount);
+  const formatAmount = (amount: number, currency: string) =>
+  new Intl.NumberFormat(undefined, {
+    style: "currency",
+    currency,
+  }).format(amount);
+
+  const getSummaryValue = (metric: "cashIn" | "cashOut" | "net") => {
+    if (summary.singleCurrency) {
+      const value =
+        metric === "cashIn"
+          ? summary.singleCurrency.cashIn
+          : metric === "cashOut"
+            ? summary.singleCurrency.cashOut
+            : summary.singleCurrency.net;
+
+      return formatAmount(value, summary.singleCurrency.currency);
+    }
+
+    if (!summary.entries.length) {
+      return formatAmount(0, DEFAULT_CURRENCY);
+    }
+
+    return "Multiple currencies";
+  };
+
+  const getSummaryDetails = (metric: "cashIn" | "cashOut" | "net") => {
+    if (summary.entries.length <= 1) {
+      return null;
+    }
+
+    return summary.entries
+      .map((entry) => {
+        const value =
+          metric === "cashIn"
+            ? entry.cashIn
+            : metric === "cashOut"
+              ? entry.cashOut
+              : entry.net;
+        return `${entry.currency}: ${formatAmount(value, entry.currency)}`;
+      })
+      .join(" · ");
+  };
 
   const handleGenerateReport = () => {
     if (!filteredTransactions.length) {
@@ -109,16 +173,20 @@ const Reports = () => {
   };
 
   const exportAsCsv = () => {
-    const header = ["Date", "Description", "Cashbook", "Category", "Mode", "Type", "Amount"];
-    const rows = filteredTransactions.map((transaction) => [
-      new Date(transaction.date).toISOString(),
-      transaction.description,
-      cashbookNames.get(transaction.cashbookId) ?? "Unnamed",
-      transaction.category,
-      transaction.mode,
-      transaction.type === "CASH_IN" ? "Cash In" : "Cash Out",
-      transaction.amount.toFixed(2),
-    ]);
+    const header = ["Date", "Description", "Cashbook", "Category", "Mode", "Type", "Amount", "Currency"];
+    const rows = filteredTransactions.map((transaction) => {
+      const currency = cashbookCurrencies.get(transaction.cashbookId) ?? DEFAULT_CURRENCY;
+      return [
+        new Date(transaction.date).toISOString(),
+        transaction.description,
+        cashbookNames.get(transaction.cashbookId) ?? "Unnamed",
+        transaction.category,
+        transaction.mode,
+        transaction.type === "CASH_IN" ? "Cash In" : "Cash Out",
+        transaction.amount.toFixed(2),
+        currency,
+      ];
+    });
 
     const csvContent = [header, ...rows]
       .map((row) => row.map((value) => JSON.stringify(value ?? "")).join(","))
@@ -129,9 +197,11 @@ const Reports = () => {
   };
 
   const exportAsSpreadsheet = () => {
-    const header = ["Date", "Description", "Cashbook", "Category", "Mode", "Type", "Amount"];
+    const header = ["Date", "Description", "Cashbook", "Category", "Mode", "Type", "Amount", "Currency"];
     const rows = filteredTransactions
-      .map((transaction) => `
+      .map((transaction) => {
+        const currency = cashbookCurrencies.get(transaction.cashbookId) ?? DEFAULT_CURRENCY;
+        return `
         <tr>
           <td>${escapeHtml(new Date(transaction.date).toISOString())}</td>
           <td>${escapeHtml(transaction.description)}</td>
@@ -140,8 +210,10 @@ const Reports = () => {
           <td>${escapeHtml(transaction.mode)}</td>
           <td>${transaction.type === "CASH_IN" ? "Cash In" : "Cash Out"}</td>
           <td>${transaction.amount.toFixed(2)}</td>
+          <td>${escapeHtml(currency)}</td>
         </tr>
-      `)
+      `;
+      })
       .join("");
 
     const table = `
@@ -183,6 +255,7 @@ const Reports = () => {
       cursorY,
     );
     cursorY += 16;
+
     doc.text(
       `Type: ${filters.type === "ALL" ? "All" : filters.type === "CASH_IN" ? "Cash In" : "Cash Out"}`,
       marginLeft,
@@ -191,12 +264,34 @@ const Reports = () => {
     cursorY += 24;
 
     doc.setFontSize(12);
-    doc.text(`Total Cash In: ${formatCurrency(summary.totalCashIn)}`, marginLeft, cursorY);
+    const cashInValue = getSummaryValue("cashIn");
+    doc.text(`Total Cash In: ${cashInValue}`, marginLeft, cursorY);
     cursorY += 16;
-    doc.text(`Total Cash Out: ${formatCurrency(summary.totalCashOut)}`, marginLeft, cursorY);
+    const cashInDetails = getSummaryDetails("cashIn");
+    if (cashInDetails) {
+      doc.text(cashInDetails, marginLeft, cursorY);
+      cursorY += 16;
+    }
+
+    const cashOutValue = getSummaryValue("cashOut");
+    doc.text(`Total Cash Out: ${cashOutValue}`, marginLeft, cursorY);
     cursorY += 16;
-    doc.text(`Net Balance: ${formatCurrency(summary.netBalance)}`, marginLeft, cursorY);
-    cursorY += 24;
+    const cashOutDetails = getSummaryDetails("cashOut");
+    if (cashOutDetails) {
+      doc.text(cashOutDetails, marginLeft, cursorY);
+      cursorY += 16;
+    }
+
+    const netValue = getSummaryValue("net");
+    doc.text(`Net Balance: ${netValue}`, marginLeft, cursorY);
+    cursorY += 16;
+    const netDetails = getSummaryDetails("net");
+    if (netDetails) {
+      doc.text(netDetails, marginLeft, cursorY);
+      cursorY += 16;
+    }
+
+    cursorY += 8;
 
     doc.setFontSize(11);
     doc.text("Transactions", marginLeft, cursorY);
@@ -208,6 +303,9 @@ const Reports = () => {
         cursorY = 60;
       }
 
+      const currency = cashbookCurrencies.get(transaction.cashbookId) ?? DEFAULT_CURRENCY;
+      const amountLabel = formatAmount(transaction.amount, currency);
+
       doc.text(
         `${new Date(transaction.date).toLocaleDateString()} - ${cashbookNames.get(transaction.cashbookId) ?? "Unnamed"}`,
         marginLeft,
@@ -215,7 +313,7 @@ const Reports = () => {
       );
       cursorY += 14;
       doc.text(
-        `${transaction.type === "CASH_IN" ? "Cash In" : "Cash Out"} - ${formatCurrency(transaction.amount)} - ${transaction.mode}`,
+        `${transaction.type === "CASH_IN" ? "Cash In" : "Cash Out"} - ${amountLabel} (${currency}) - ${transaction.mode}`,
         marginLeft,
         cursorY,
       );
@@ -223,7 +321,6 @@ const Reports = () => {
       doc.text(transaction.description, marginLeft, cursorY);
       cursorY += 20;
     });
-
     const blob = doc.output("blob");
     return { blob, extension: "pdf", mime: "application/pdf" };
   };
@@ -375,8 +472,13 @@ const Reports = () => {
                     <div>
                       <p className="text-sm text-muted-foreground">Total Cash In</p>
                       <p className="text-2xl font-bold text-income">
-                        {formatCurrency(summary.totalCashIn)}
+                        {getSummaryValue("cashIn")}
                       </p>
+                      {summary.entries.length > 1 && (
+                        <p className="text-xs text-muted-foreground mt-1">
+                          {getSummaryDetails("cashIn")}
+                        </p>
+                      )}
                     </div>
                     <div className="p-3 rounded-lg bg-gradient-income">
                       <TrendingUp className="h-5 w-5 text-white" />
@@ -391,8 +493,13 @@ const Reports = () => {
                     <div>
                       <p className="text-sm text-muted-foreground">Total Cash Out</p>
                       <p className="text-2xl font-bold text-expense">
-                        {formatCurrency(summary.totalCashOut)}
+                        {getSummaryValue("cashOut")}
                       </p>
+                      {summary.entries.length > 1 && (
+                        <p className="text-xs text-muted-foreground mt-1">
+                          {getSummaryDetails("cashOut")}
+                        </p>
+                      )}
                     </div>
                     <div className="p-3 rounded-lg bg-gradient-expense">
                       <TrendingDown className="h-5 w-5 text-white" />
@@ -406,11 +513,22 @@ const Reports = () => {
                   <div className="flex items-center justify-between">
                     <div>
                       <p className="text-sm text-muted-foreground">Net Balance</p>
-                      <p className={`text-2xl font-bold ${
-                        summary.netBalance >= 0 ? "text-income" : "text-expense"
-                      }`}>
-                        {formatCurrency(summary.netBalance)}
+                      <p
+                        className={`text-2xl font-bold ${
+                          summary.singleCurrency && summary.singleCurrency.net >= 0
+                            ? "text-income"
+                            : summary.singleCurrency && summary.singleCurrency.net < 0
+                              ? "text-expense"
+                              : "text-primary"
+                        }`}
+                      >
+                        {getSummaryValue("net")}
                       </p>
+                      {summary.entries.length > 1 && (
+                        <p className="text-xs text-muted-foreground mt-1">
+                          {getSummaryDetails("net")}
+                        </p>
+                      )}
                     </div>
                     <div className="p-3 rounded-lg bg-gradient-primary">
                       <FileText className="h-5 w-5 text-white" />
@@ -462,31 +580,35 @@ const Reports = () => {
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {filteredTransactions.map((transaction) => (
-                      <TableRow key={transaction.id}>
-                        <TableCell className="font-medium">
-                          {new Date(transaction.date).toLocaleDateString()}
-                        </TableCell>
-                        <TableCell>{transaction.description}</TableCell>
-                        <TableCell>{cashbookNames.get(transaction.cashbookId) ?? "Unnamed"}</TableCell>
-                        <TableCell>{transaction.category}</TableCell>
-                        <TableCell>{transaction.mode}</TableCell>
-                        <TableCell className="text-right">
-                          {transaction.type === "CASH_IN" && (
-                            <span className="font-semibold text-income">
-                              {formatCurrency(transaction.amount)}
-                            </span>
-                          )}
-                        </TableCell>
-                        <TableCell className="text-right">
-                          {transaction.type === "CASH_OUT" && (
-                            <span className="font-semibold text-expense">
-                              {formatCurrency(transaction.amount)}
-                            </span>
-                          )}
-                        </TableCell>
-                      </TableRow>
-                    ))}
+                    {filteredTransactions.map((transaction) => {
+                      const currency = cashbookCurrencies.get(transaction.cashbookId) ?? DEFAULT_CURRENCY;
+
+                      return (
+                        <TableRow key={transaction.id}>
+                          <TableCell className="font-medium">
+                            {new Date(transaction.date).toLocaleDateString()}
+                          </TableCell>
+                          <TableCell>{transaction.description}</TableCell>
+                          <TableCell>{cashbookNames.get(transaction.cashbookId) ?? "Unnamed"}</TableCell>
+                          <TableCell>{transaction.category}</TableCell>
+                          <TableCell>{transaction.mode}</TableCell>
+                          <TableCell className="text-right">
+                            {transaction.type === "CASH_IN" && (
+                              <span className="font-semibold text-income">
+                                {formatAmount(transaction.amount, currency)}
+                              </span>
+                            )}
+                          </TableCell>
+                          <TableCell className="text-right">
+                            {transaction.type === "CASH_OUT" && (
+                              <span className="font-semibold text-expense">
+                                {formatAmount(transaction.amount, currency)}
+                              </span>
+                            )}
+                          </TableCell>
+                        </TableRow>
+                      );
+                    })}
                   </TableBody>
                 </Table>
               </CardContent>
