@@ -9,6 +9,7 @@ import {
 } from "react";
 import { useAuth } from "@/hooks/useAuth";
 
+import { supabase } from "@/integrations/supabase/client";
 type TransactionType = "CASH_IN" | "CASH_OUT";
 
 type Cashbook = {
@@ -84,25 +85,29 @@ const STORAGE_KEY_PREFIX = "coinflow:data";
 
 const isBrowser = typeof window !== "undefined";
 
-const DEFAULT_CATEGORIES: Category[] = [
-  { id: "cat-1", name: "Salary" },
-  { id: "cat-2", name: "Groceries" },
-  { id: "cat-3", name: "Rent" },
-  { id: "cat-4", name: "Utilities" },
-  { id: "cat-5", name: "Consulting" },
-];
+const DEFAULT_CATEGORY_NAMES = ["Salary", "Groceries", "Rent", "Utilities", "Consulting"] as const;
 
-const DEFAULT_PAYMENT_MODES: PaymentMode[] = [
-  { id: "mode-1", name: "Cash" },
-  { id: "mode-2", name: "Bank Transfer" },
-  { id: "mode-3", name: "Card" },
-  { id: "mode-4", name: "Digital Wallet" },
-];
+const DEFAULT_PAYMENT_MODE_NAMES = ["Cash", "Bank Transfer", "Card", "Digital Wallet"] as const;
 
-const generateId = () =>
-  typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
-    ? crypto.randomUUID()
-    : Math.random().toString(36).slice(2, 10);
+const generateId = () => {
+  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+    return crypto.randomUUID();
+  }
+
+  return "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, (char) => {
+    const random = Math.floor(Math.random() * 16);
+    const value = char === "x" ? random : (random & 0x3) | 0x8;
+    return value.toString(16);
+  });
+};
+
+const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+const createDefaultCategories = (): Category[] =>
+  DEFAULT_CATEGORY_NAMES.map((name) => ({ id: generateId(), name }));
+
+const createDefaultPaymentModes = (): PaymentMode[] =>
+  DEFAULT_PAYMENT_MODE_NAMES.map((name) => ({ id: generateId(), name }));
 
 const calculateBalance = (cashbookId: string, items: Transaction[]) =>
   items
@@ -125,8 +130,8 @@ const clonePaymentModes = (modes: PaymentMode[]) => modes.map((mode) => ({ ...mo
 const buildDefaultState = (): PersistedState => ({
   cashbooks: [],
   transactions: [],
-  categories: cloneCategories(DEFAULT_CATEGORIES),
-  paymentModes: clonePaymentModes(DEFAULT_PAYMENT_MODES),
+  categories: createDefaultCategories(),
+  paymentModes: createDefaultPaymentModes(),
 });
 
 const loadPersistedState = (key: string): PersistedState => {
@@ -144,13 +149,69 @@ const loadPersistedState = (key: string): PersistedState => {
     return {
       cashbooks: parsed.cashbooks ?? [],
       transactions: parsed.transactions ?? [],
-      categories: parsed.categories?.length ? parsed.categories : cloneCategories(DEFAULT_CATEGORIES),
-      paymentModes: parsed.paymentModes?.length ? parsed.paymentModes : clonePaymentModes(DEFAULT_PAYMENT_MODES),
+      categories: parsed.categories?.length ? parsed.categories : createDefaultCategories(),
+      paymentModes: parsed.paymentModes?.length ? parsed.paymentModes : createDefaultPaymentModes(),
     };
   } catch (error) {
     console.error("Failed to read cashbook data from storage", error);
     return buildDefaultState();
   }
+};
+
+const ensureUuidWithCache = (value: string, cache: Map<string, string>) => {
+  if (UUID_REGEX.test(value)) {
+    return value;
+  }
+
+  if (cache.has(value)) {
+    return cache.get(value)!;
+  }
+
+  const newId = generateId();
+  cache.set(value, newId);
+  return newId;
+};
+
+const normalizeStateForPersistence = (state: PersistedState): PersistedState => {
+  const cashbookIdMap = new Map<string, string>();
+  const categoryIdMap = new Map<string, string>();
+  const paymentModeIdMap = new Map<string, string>();
+  const transactionIdMap = new Map<string, string>();
+
+  const cashbooks = state.cashbooks.map((cashbook) => ({
+    ...cashbook,
+    id: ensureUuidWithCache(cashbook.id, cashbookIdMap),
+  }));
+
+  const categories = state.categories.map((category) => ({
+    ...category,
+    id: ensureUuidWithCache(category.id, categoryIdMap),
+  }));
+
+  const paymentModes = state.paymentModes.map((mode) => ({
+    ...mode,
+    id: ensureUuidWithCache(mode.id, paymentModeIdMap),
+  }));
+
+  const transactions = state.transactions.map((transaction) => {
+    const nextCashbookId = cashbookIdMap.get(transaction.cashbookId) ?? transaction.cashbookId;
+    const normalizedCashbookId = UUID_REGEX.test(nextCashbookId)
+      ? nextCashbookId
+      : ensureUuidWithCache(nextCashbookId, cashbookIdMap);
+
+    return {
+      ...transaction,
+      id: ensureUuidWithCache(transaction.id, transactionIdMap),
+      cashbookId: normalizedCashbookId,
+    };
+  });
+
+  return {
+    cashbooks,
+    transactions,
+    categories,
+    paymentModes,
+  };
 };
 
 const recalcCashbooks = (cashbooks: Cashbook[], transactions: Transaction[]): Cashbook[] =>
@@ -171,30 +232,149 @@ export const CashbookProvider = ({ children }: { children: ReactNode }) => {
 
   const [cashbooks, setCashbooks] = useState<Cashbook[]>([]);
   const [transactions, setTransactions] = useState<Transaction[]>([]);
-  const [categories, setCategories] = useState<Category[]>(cloneCategories(DEFAULT_CATEGORIES));
-  const [paymentModes, setPaymentModes] = useState<PaymentMode[]>(clonePaymentModes(DEFAULT_PAYMENT_MODES));
+  const [categories, setCategories] = useState<Category[]>(() => createDefaultCategories());
+  const [paymentModes, setPaymentModes] = useState<PaymentMode[]>(() => createDefaultPaymentModes());
   const [hydratedKey, setHydratedKey] = useState<string | null>(null);
 
+  const applyPersistedState = useCallback((state: PersistedState) => {
+    const normalized = normalizeStateForPersistence(state);
+    const recalculatedCashbooks = recalcCashbooks(normalized.cashbooks, normalized.transactions);
+    setCashbooks(recalculatedCashbooks);
+    setTransactions(normalized.transactions);
+    setCategories(cloneCategories(normalized.categories));
+    setPaymentModes(clonePaymentModes(normalized.paymentModes));
+  }, []);
+
+  const loadStateFromSupabase = useCallback(
+    async (userId: string): Promise<PersistedState | null> => {
+      try {
+        const [cashbookResponse, transactionResponse, categoryResponse, modeResponse] = await Promise.all([
+          supabase.from("cashbooks").select("id, name").eq("owner_id", userId),
+          supabase
+            .from("transactions")
+            .select("id, cashbook_id, type, amount, description, category_id, mode_id, transaction_datetime")
+            .eq("recorded_by_user_id", userId),
+          supabase.from("categories").select("id, name").eq("owner_id", userId),
+          supabase.from("modes").select("id, name").eq("owner_id", userId),
+        ]);
+
+        if (cashbookResponse.error || transactionResponse.error || categoryResponse.error || modeResponse.error) {
+          console.error("Failed to load data from Supabase", {
+            cashbookError: cashbookResponse.error,
+            transactionError: transactionResponse.error,
+            categoryError: categoryResponse.error,
+            modeError: modeResponse.error,
+          });
+          return null;
+        }
+
+        let categories = (categoryResponse.data ?? []).map((row) => ({ id: row.id, name: row.name }));
+        if (!categories.length) {
+          const defaults = createDefaultCategories();
+          const { error: insertCategoriesError } = await supabase
+            .from("categories")
+            .insert(defaults.map((category) => ({ id: category.id, name: category.name, owner_id: userId })));
+
+          if (insertCategoriesError) {
+            console.error("Failed to insert default categories", insertCategoriesError);
+          }
+
+          categories = defaults;
+        }
+
+        let paymentModes = (modeResponse.data ?? []).map((row) => ({ id: row.id, name: row.name }));
+        if (!paymentModes.length) {
+          const defaults = createDefaultPaymentModes();
+          const { error: insertModesError } = await supabase
+            .from("modes")
+            .insert(defaults.map((mode) => ({ id: mode.id, name: mode.name, owner_id: userId })));
+
+          if (insertModesError) {
+            console.error("Failed to insert default payment modes", insertModesError);
+          }
+
+          paymentModes = defaults;
+        }
+
+        const categoryNameById = new Map(categories.map((category) => [category.id, category.name]));
+        const paymentModeNameById = new Map(paymentModes.map((mode) => [mode.id, mode.name]));
+
+        const transactions: Transaction[] = (transactionResponse.data ?? []).map((row) => ({
+          id: row.id,
+          cashbookId: row.cashbook_id,
+          type: row.type as TransactionType,
+          amount: row.amount,
+          description: row.description,
+          category: categoryNameById.get(row.category_id) ?? "Uncategorized",
+          mode: paymentModeNameById.get(row.mode_id) ?? "Unknown",
+          date: row.transaction_datetime,
+        }));
+
+        const cashbooks: Cashbook[] = (cashbookResponse.data ?? []).map((row) => ({
+          id: row.id,
+          name: row.name,
+          balance: 0,
+          lastActivity: null,
+        }));
+
+        const recalculatedCashbooks = recalcCashbooks(cashbooks, transactions);
+
+        return {
+          cashbooks: recalculatedCashbooks,
+          transactions,
+          categories,
+          paymentModes,
+        };
+      } catch (error) {
+        console.error("Unexpected error while loading data from Supabase", error);
+        return null;
+      }
+    },
+    [],
+  );
+
   useEffect(() => {
-    const state = loadPersistedState(storageKey);
-    setCashbooks(recalcCashbooks(state.cashbooks, state.transactions));
-    setTransactions(state.transactions);
-    setCategories(cloneCategories(state.categories));
-    setPaymentModes(clonePaymentModes(state.paymentModes));
-    setHydratedKey(storageKey);
-  }, [storageKey]);
+    if (!isBrowser) {
+      return;
+    }
+
+    let isCancelled = false;
+    setHydratedKey(null);
+
+    const hydrate = async () => {
+      let state: PersistedState | null = null;
+
+      if (user?.id) {
+        state = await loadStateFromSupabase(user.id);
+      }
+
+      if (isCancelled) {
+        return;
+      }
+
+      const fallbackState = state ?? loadPersistedState(storageKey);
+      applyPersistedState(fallbackState);
+      setHydratedKey(storageKey);
+    };
+
+    void hydrate();
+
+    return () => {
+      isCancelled = true;
+    };
+  }, [applyPersistedState, loadStateFromSupabase, storageKey, user?.id]);
 
   useEffect(() => {
     if (!isBrowser || hydratedKey !== storageKey) {
       return;
     }
 
-    const state: PersistedState = {
+    const state: PersistedState = normalizeStateForPersistence({
       cashbooks,
       transactions,
       categories,
       paymentModes,
-    };
+    });
 
     window.localStorage.setItem(storageKey, JSON.stringify(state));
   }, [cashbooks, transactions, categories, paymentModes, storageKey, hydratedKey]);
@@ -209,50 +389,111 @@ export const CashbookProvider = ({ children }: { children: ReactNode }) => {
     [transactions],
   );
 
-  const createCashbook = useCallback((name: string) => {
-    const id = generateId();
-    const now = new Date().toISOString();
+  const createCashbook = useCallback(
+    (name: string) => {
+      const id = generateId();
+      const now = new Date().toISOString();
 
-    const newCashbook: Cashbook = {
-      id,
-      name,
-      balance: 0,
-      lastActivity: now,
-    };
+      const newCashbook: Cashbook = {
+        id,
+        name,
+        balance: 0,
+        lastActivity: now,
+      };
 
-    setCashbooks((prev) => [...prev, newCashbook]);
+      setCashbooks((prev) => [...prev, newCashbook]);
 
-    return newCashbook;
-  }, []);
+      if (user?.id) {
+        void (async () => {
+          const { error } = await supabase.from("cashbooks").insert({
+            id,
+            name,
+            owner_id: user.id,
+          });
 
-  const updateCashbook = useCallback((id: string, updates: CashbookUpdate) => {
-    setCashbooks((prev) =>
-      prev.map((cashbook) =>
-        cashbook.id === id
-          ? {
-              ...cashbook,
-              ...updates,
-            }
-          : cashbook,
-      ),
-    );
-  }, []);
+          if (error) {
+            console.error("Failed to persist cashbook to Supabase", error);
+          }
+        })();
+      }
 
-  const deleteCashbook = useCallback((id: string) => {
-    setTransactions((prevTransactions) => {
-      const updatedTransactions = prevTransactions.filter((transaction) => transaction.cashbookId !== id);
-      setCashbooks((prevCashbooks) =>
-        recalcCashbooks(
-          prevCashbooks.filter((cashbook) => cashbook.id !== id),
-          updatedTransactions,
+      return newCashbook;
+    },
+    [user?.id],
+  );
+
+  const updateCashbook = useCallback(
+    (id: string, updates: CashbookUpdate) => {
+      setCashbooks((prev) =>
+        prev.map((cashbook) =>
+          cashbook.id === id
+            ? {
+                ...cashbook,
+                ...updates,
+              }
+            : cashbook,
         ),
       );
-      return updatedTransactions;
-    });
-  }, []);
 
-  const addTransaction = useCallback((cashbookId: string, input: TransactionInput) => {
-    setTransactions((prev) => {
+      if (user?.id && typeof updates.name === "string") {
+        void (async () => {
+          const { error } = await supabase
+            .from("cashbooks")
+            .update({ name: updates.name, updated_at: new Date().toISOString() })
+            .eq("id", id)
+            .eq("owner_id", user.id);
+
+          if (error) {
+            console.error("Failed to update cashbook in Supabase", error);
+          }
+        })();
+      }
+    },
+    [user?.id],
+  );
+
+  const deleteCashbook = useCallback(
+    (id: string) => {
+      setTransactions((prevTransactions) => {
+        const updatedTransactions = prevTransactions.filter((transaction) => transaction.cashbookId !== id);
+        setCashbooks((prevCashbooks) =>
+          recalcCashbooks(
+            prevCashbooks.filter((cashbook) => cashbook.id !== id),
+            updatedTransactions,
+          ),
+        );
+        return updatedTransactions;
+      });
+
+      if (user?.id) {
+        void (async () => {
+          const { error: transactionError } = await supabase
+            .from("transactions")
+            .delete()
+            .eq("cashbook_id", id)
+            .eq("recorded_by_user_id", user.id);
+
+          if (transactionError) {
+            console.error("Failed to delete transactions for cashbook in Supabase", transactionError);
+          }
+
+          const { error: cashbookError } = await supabase
+            .from("cashbooks")
+            .delete()
+            .eq("id", id)
+            .eq("owner_id", user.id);
+
+          if (cashbookError) {
+            console.error("Failed to delete cashbook in Supabase", cashbookError);
+          }
+        })();
+      }
+    },
+    [user?.id],
+  );
+
+  const addTransaction = useCallback(
+    (cashbookId: string, input: TransactionInput) => {
       const id = generateId();
       const transaction: Transaction = {
         id,
@@ -260,66 +501,297 @@ export const CashbookProvider = ({ children }: { children: ReactNode }) => {
         ...input,
       };
 
-      const updatedTransactions = [...prev, transaction];
-      setCashbooks((prevCashbooks) => recalcCashbooks(prevCashbooks, updatedTransactions));
-      return updatedTransactions;
-    });
-  }, []);
+      setTransactions((prev) => {
+        const updatedTransactions = [...prev, transaction];
+        setCashbooks((prevCashbooks) => recalcCashbooks(prevCashbooks, updatedTransactions));
+        return updatedTransactions;
+      });
 
-  const updateTransaction = useCallback((id: string, updates: TransactionUpdate) => {
-    setTransactions((prev) => {
-      const updatedTransactions = prev.map((transaction) =>
-        transaction.id === id
-          ? {
-              ...transaction,
-              ...updates,
-              cashbookId: updates.cashbookId ?? transaction.cashbookId,
+      if (user?.id) {
+        const category = categories.find((item) => item.name === input.category);
+        const mode = paymentModes.find((item) => item.name === input.mode);
+
+        if (category && mode) {
+          void (async () => {
+            const { error } = await supabase.from("transactions").insert({
+              id,
+              cashbook_id: cashbookId,
+              type: input.type,
+              amount: input.amount,
+              description: input.description,
+              category_id: category.id,
+              mode_id: mode.id,
+              transaction_datetime: input.date,
+              recorded_by_user_id: user.id,
+            });
+
+            if (error) {
+              console.error("Failed to insert transaction in Supabase", error);
             }
-          : transaction,
-      );
+          })();
+        } else {
+          console.warn("Unable to persist transaction: missing category or payment mode mapping", {
+            category: input.category,
+            mode: input.mode,
+          });
+        }
+      }
+    },
+    [categories, paymentModes, user?.id],
+  );
 
-      setCashbooks((prevCashbooks) => recalcCashbooks(prevCashbooks, updatedTransactions));
-      return updatedTransactions;
-    });
-  }, []);
+  const updateTransaction = useCallback(
+    (id: string, updates: TransactionUpdate) => {
+      let nextTransaction: Transaction | null = null;
 
-  const deleteTransaction = useCallback((id: string) => {
-    setTransactions((prev) => {
-      const updatedTransactions = prev.filter((transaction) => transaction.id !== id);
-      setCashbooks((prevCashbooks) => recalcCashbooks(prevCashbooks, updatedTransactions));
-      return updatedTransactions;
-    });
-  }, []);
+      setTransactions((prev) => {
+        const updatedTransactions = prev.map((transaction) => {
+          if (transaction.id !== id) {
+            return transaction;
+          }
 
-  const addCategory = useCallback((name: string) => {
-    setCategories((prev) => {
-      const exists = prev.some((category) => category.name.toLowerCase() === name.toLowerCase());
-      if (exists) {
-        return prev;
+          const merged: Transaction = {
+            ...transaction,
+            ...updates,
+            cashbookId: updates.cashbookId ?? transaction.cashbookId,
+          };
+
+          nextTransaction = merged;
+          return merged;
+        });
+
+        setCashbooks((prevCashbooks) => recalcCashbooks(prevCashbooks, updatedTransactions));
+        return updatedTransactions;
+      });
+
+      if (user?.id && nextTransaction) {
+        const category = categories.find((item) => item.name === nextTransaction.category);
+        const mode = paymentModes.find((item) => item.name === nextTransaction.mode);
+
+        if (category && mode) {
+          void (async () => {
+            const { error } = await supabase
+              .from("transactions")
+              .update({
+                cashbook_id: nextTransaction!.cashbookId,
+                type: nextTransaction!.type,
+                amount: nextTransaction!.amount,
+                description: nextTransaction!.description,
+                category_id: category.id,
+                mode_id: mode.id,
+                transaction_datetime: nextTransaction!.date,
+                updated_at: new Date().toISOString(),
+              })
+              .eq("id", nextTransaction!.id)
+              .eq("recorded_by_user_id", user.id);
+
+            if (error) {
+              console.error("Failed to update transaction in Supabase", error);
+            }
+          })();
+        } else {
+          console.warn("Unable to persist transaction update: missing category or payment mode mapping", {
+            category: nextTransaction.category,
+            mode: nextTransaction.mode,
+          });
+        }
+      }
+    },
+    [categories, paymentModes, user?.id],
+  );
+
+  const deleteTransaction = useCallback(
+    (id: string) => {
+      setTransactions((prev) => {
+        const updatedTransactions = prev.filter((transaction) => transaction.id !== id);
+        setCashbooks((prevCashbooks) => recalcCashbooks(prevCashbooks, updatedTransactions));
+        return updatedTransactions;
+      });
+
+      if (user?.id) {
+        void (async () => {
+          const { error } = await supabase
+            .from("transactions")
+            .delete()
+            .eq("id", id)
+            .eq("recorded_by_user_id", user.id);
+
+          if (error) {
+            console.error("Failed to delete transaction in Supabase", error);
+          }
+        })();
+      }
+    },
+    [user?.id],
+  );
+
+  const addCategory = useCallback(
+    (name: string) => {
+      const normalizedName = name.trim();
+      if (!normalizedName) {
+        return;
       }
 
-      return [...prev, { id: generateId(), name }];
-    });
-  }, []);
+      let categoryToInsert: Category | null = null;
 
-  const removeCategory = useCallback((id: string) => {
-    setCategories((prev) => prev.filter((category) => category.id !== id));
-  }, []);
+      setCategories((prev) => {
+        const exists = prev.some((category) => category.name.toLowerCase() === normalizedName.toLowerCase());
+        if (exists) {
+          return prev;
+        }
 
-  const addPaymentMode = useCallback((name: string) => {
-    setPaymentModes((prev) => {
-      const exists = prev.some((mode) => mode.name.toLowerCase() === name.toLowerCase());
-      if (exists) {
-        return prev;
+        categoryToInsert = { id: generateId(), name: normalizedName };
+        return [...prev, categoryToInsert];
+      });
+
+      if (categoryToInsert && user?.id) {
+        void (async () => {
+          const { error } = await supabase
+            .from("categories")
+            .insert({ id: categoryToInsert!.id, name: categoryToInsert!.name, owner_id: user.id });
+
+          if (error) {
+            console.error("Failed to insert category in Supabase", error);
+          }
+        })();
+      }
+    },
+    [user?.id],
+  );
+
+  const removeCategory = useCallback(
+    (id: string) => {
+      const category = categories.find((item) => item.id === id);
+      if (!category) {
+        return;
       }
 
-      return [...prev, { id: generateId(), name }];
-    });
-  }, []);
+      const relatedTransactionIds = transactions
+        .filter((transaction) => transaction.category === category.name)
+        .map((transaction) => transaction.id);
 
-  const removePaymentMode = useCallback((id: string) => {
-    setPaymentModes((prev) => prev.filter((mode) => mode.id !== id));
-  }, []);
+      if (relatedTransactionIds.length) {
+        setTransactions((prev) => {
+          const updatedTransactions = prev.filter((transaction) => transaction.category !== category.name);
+          setCashbooks((prevCashbooks) => recalcCashbooks(prevCashbooks, updatedTransactions));
+          return updatedTransactions;
+        });
+      }
+
+      setCategories((prev) => prev.filter((categoryItem) => categoryItem.id !== id));
+
+      if (user?.id) {
+        void (async () => {
+          if (relatedTransactionIds.length) {
+            const { error: transactionError } = await supabase
+              .from("transactions")
+              .delete()
+              .eq("recorded_by_user_id", user.id)
+              .in("id", relatedTransactionIds);
+
+            if (transactionError) {
+              console.error("Failed to delete transactions for category in Supabase", transactionError);
+            }
+          }
+
+          const { error: categoryError } = await supabase
+            .from("categories")
+            .delete()
+            .eq("id", id)
+            .eq("owner_id", user.id);
+
+          if (categoryError) {
+            console.error("Failed to delete category in Supabase", categoryError);
+          }
+        })();
+      }
+    },
+    [categories, transactions, user?.id],
+  );
+
+  const addPaymentMode = useCallback(
+    (name: string) => {
+      const normalizedName = name.trim();
+      if (!normalizedName) {
+        return;
+      }
+
+      let modeToInsert: PaymentMode | null = null;
+
+      setPaymentModes((prev) => {
+        const exists = prev.some((mode) => mode.name.toLowerCase() === normalizedName.toLowerCase());
+        if (exists) {
+          return prev;
+        }
+
+        modeToInsert = { id: generateId(), name: normalizedName };
+        return [...prev, modeToInsert];
+      });
+
+      if (modeToInsert && user?.id) {
+        void (async () => {
+          const { error } = await supabase
+            .from("modes")
+            .insert({ id: modeToInsert!.id, name: modeToInsert!.name, owner_id: user.id });
+
+          if (error) {
+            console.error("Failed to insert payment mode in Supabase", error);
+          }
+        })();
+      }
+    },
+    [user?.id],
+  );
+
+  const removePaymentMode = useCallback(
+    (id: string) => {
+      const mode = paymentModes.find((item) => item.id === id);
+      if (!mode) {
+        return;
+      }
+
+      const relatedTransactionIds = transactions
+        .filter((transaction) => transaction.mode === mode.name)
+        .map((transaction) => transaction.id);
+
+      if (relatedTransactionIds.length) {
+        setTransactions((prev) => {
+          const updatedTransactions = prev.filter((transaction) => transaction.mode !== mode.name);
+          setCashbooks((prevCashbooks) => recalcCashbooks(prevCashbooks, updatedTransactions));
+          return updatedTransactions;
+        });
+      }
+
+      setPaymentModes((prev) => prev.filter((modeItem) => modeItem.id !== id));
+
+      if (user?.id) {
+        void (async () => {
+          if (relatedTransactionIds.length) {
+            const { error: transactionError } = await supabase
+              .from("transactions")
+              .delete()
+              .eq("recorded_by_user_id", user.id)
+              .in("id", relatedTransactionIds);
+
+            if (transactionError) {
+              console.error("Failed to delete transactions for payment mode in Supabase", transactionError);
+            }
+          }
+
+          const { error: modeError } = await supabase
+            .from("modes")
+            .delete()
+            .eq("id", id)
+            .eq("owner_id", user.id);
+
+          if (modeError) {
+            console.error("Failed to delete payment mode in Supabase", modeError);
+          }
+        })();
+      }
+    },
+    [paymentModes, transactions, user?.id],
+  );
 
   const value: CashbookContextValue = useMemo(
     () => ({
