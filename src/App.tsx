@@ -4,7 +4,6 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { AuthProvider, useAuth } from "@/hooks/useAuth";
-import Index from "./pages/Index";
 import Login from "./pages/Login";
 import Dashboard from "./pages/Dashboard";
 import CashbookDetail from "./pages/CashbookDetail";
@@ -55,7 +54,7 @@ const App = () => (
           <CashbookProvider>
             <BrowserRouter>
               <Routes>
-                <Route path="/" element={<PublicRoute><Index /></PublicRoute>} />
+                <Route path="/" element={<PublicRoute><Login /></PublicRoute>} />
                 <Route path="/login" element={<PublicRoute><Login /></PublicRoute>} />
                 <Route path="/dashboard" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
                 <Route path="/cashbook/:id" element={<ProtectedRoute><CashbookDetail /></ProtectedRoute>} />

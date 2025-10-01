@@ -39,54 +39,68 @@ const Login = () => {
     <div className="min-h-screen bg-background">
       <div className="grid min-h-screen lg:grid-cols-[1.1fr_1fr]">
         <section className="relative hidden overflow-hidden lg:flex">
-          <div className="absolute inset-0 bg-gradient-to-br from-primary via-primary/80 to-secondary" />
+          <div className="absolute inset-0 bg-gradient-to-br from-slate-950 via-primary/90 to-primary" />
           <div className="relative z-10 flex w-full flex-col justify-between p-12 text-white">
-            <div>
-              <span className="text-sm font-semibold uppercase tracking-[0.35em] text-white/70">Coinflow</span>
-              <h1 className="mt-8 text-4xl font-bold leading-tight">Stay ahead of your cash flow.</h1>
-              <p className="mt-4 max-w-md text-lg text-white/85">Consolidate personal and business finances, understand trends, and act faster with a single source of truth.</p>
+            <div className="space-y-4">
+              <span className="inline-flex items-center gap-2 text-sm font-semibold uppercase tracking-[0.35em] text-white/80">
+                <CheckCircle2 className="h-4 w-4" />
+                Coinflow
+              </span>
+              <h1 className="text-4xl font-semibold leading-tight text-white">Stay ahead of your cash flow.</h1>
+              <p className="max-w-md text-base text-white/90">Consolidate personal and business finances, understand trends, and act faster with a single source of truth.</p>
             </div>
             <div className="space-y-4">
               {featureHighlights.map((item) => (
-                <div key={item} className="flex items-start gap-3">
-                  <span className="rounded-full bg-white/20 p-1">
+                <div key={item} className="flex items-start gap-3 rounded-xl bg-white/15 p-4 backdrop-blur">
+                  <span className="rounded-full bg-white/30 p-1 text-slate-900">
                     <CheckCircle2 className="h-5 w-5" />
                   </span>
-                  <p className="text-white/85">{item}</p>
+                  <p className="text-sm font-medium text-white">{item}</p>
                 </div>
               ))}
             </div>
-            <p className="text-xs text-white/60">Tip: you can switch between light and dark themes from the dashboard at any time.</p>
+            <p className="text-xs text-white/75">Tip: you can switch between light and dark themes from the dashboard at any time.</p>
           </div>
         </section>
 
-        <section className="flex items-center justify-center px-6 py-12 sm:px-12">
+        <section className="flex items-center justify-center px-5 py-12 sm:px-8">
           <div className="w-full max-w-md space-y-8">
-            <div>
-              <p className="text-sm font-medium text-primary">Coinflow</p>
-              <h2 className="mt-2 text-3xl font-bold text-foreground">{isSignUp ? "Create your account" : "Welcome back"}</h2>
-              <p className="mt-2 text-sm text-muted-foreground">
+            <div className="space-y-3 text-center sm:text-left">
+              <div className="flex flex-col items-center gap-2 sm:flex-row sm:items-center sm:gap-3">
+                <picture>
+                  <img src="/logo.svg" alt="Coinflow logo" className="h-12 w-12" />
+                </picture>
+                <p className="text-sm font-semibold text-primary">Coinflow</p>
+              </div>
+              <h2 className="text-3xl font-bold text-foreground sm:text-4xl">{isSignUp ? "Create your account" : "Welcome back"}</h2>
+              <p className="text-sm text-foreground/85 sm:text-base">
                 {isSignUp
                   ? "Sign up to start tracking your cash flow in minutes."
                   : "Sign in to continue managing your cashbooks."}
               </p>
             </div>
 
-            <Card className="border border-border/60 shadow-xl">
+            <Card className="border border-border/70 shadow-lg shadow-primary/5">
               <CardHeader className="space-y-4">
-                <div className="flex items-center justify-between gap-4">
-                  <div>
-                    <CardDescription className="text-xs uppercase tracking-[0.4em] text-muted-foreground">
+                <div className="flex flex-wrap items-center justify-between gap-4">
+                  <div className="space-y-1">
+                    <CardDescription className="text-xs uppercase tracking-[0.35em] text-muted-foreground">
                       {isSignUp ? "Create account" : "Sign in"}
                     </CardDescription>
-                    <CardTitle className="text-2xl">{isSignUp ? "Join Coinflow" : "Sign in to Coinflow"}</CardTitle>
+                    <CardTitle className="text-2xl text-foreground">{isSignUp ? "Join Coinflow" : "Sign in to Coinflow"}</CardTitle>
                   </div>
-                  <Button variant="ghost" size="sm" className="text-primary" onClick={toggleAuthMode} type="button">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="text-primary hover:text-primary"
+                    onClick={toggleAuthMode}
+                    type="button"
+                  >
                     <UserPlus className="mr-2 h-4 w-4" />
                     {isSignUp ? "Sign in instead" : "Create account"}
                   </Button>
                 </div>
-                <p className="text-sm text-muted-foreground">
+                <p className="text-sm text-foreground/75">
                   {isSignUp
                     ? "Use a work or personal email address and a secure password to get started."
                     : "Enter your credentials to access your cashbooks and reports."}
@@ -127,7 +141,7 @@ const Login = () => {
                     </div>
                   </div>
 
-                  <Button type="submit" className="w-full" disabled={isLoading}>
+                  <Button type="submit" className="w-full text-base font-semibold" disabled={isLoading}>
                     {isLoading
                       ? isSignUp
                         ? "Creating account..."
@@ -137,7 +151,7 @@ const Login = () => {
                         : "Sign in"}
                   </Button>
                 </form>
-                <p className="mt-6 text-center text-xs text-muted-foreground">By continuing you agree to keep your workspace secure.</p>
+                <p className="mt-6 text-center text-xs text-foreground/70">By continuing you agree to keep your workspace secure.</p>
               </CardContent>
             </Card>
           </div>
