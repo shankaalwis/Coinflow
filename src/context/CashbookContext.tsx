@@ -173,20 +173,19 @@ export const CashbookProvider = ({ children }: { children: ReactNode }) => {
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [categories, setCategories] = useState<Category[]>(cloneCategories(DEFAULT_CATEGORIES));
   const [paymentModes, setPaymentModes] = useState<PaymentMode[]>(clonePaymentModes(DEFAULT_PAYMENT_MODES));
-  const [isInitialized, setIsInitialized] = useState(false);
+  const [hydratedKey, setHydratedKey] = useState<string | null>(null);
 
   useEffect(() => {
-    setIsInitialized(false);
     const state = loadPersistedState(storageKey);
     setCashbooks(recalcCashbooks(state.cashbooks, state.transactions));
     setTransactions(state.transactions);
     setCategories(cloneCategories(state.categories));
     setPaymentModes(clonePaymentModes(state.paymentModes));
-    setIsInitialized(true);
+    setHydratedKey(storageKey);
   }, [storageKey]);
 
   useEffect(() => {
-    if (!isBrowser || !isInitialized) {
+    if (!isBrowser || hydratedKey !== storageKey) {
       return;
     }
 
@@ -198,7 +197,7 @@ export const CashbookProvider = ({ children }: { children: ReactNode }) => {
     };
 
     window.localStorage.setItem(storageKey, JSON.stringify(state));
-  }, [cashbooks, transactions, categories, paymentModes, storageKey, isInitialized]);
+  }, [cashbooks, transactions, categories, paymentModes, storageKey, hydratedKey]);
 
   const getCashbookById = useCallback(
     (id: string) => cashbooks.find((cashbook) => cashbook.id === id),
