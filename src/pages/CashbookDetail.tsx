@@ -1,8 +1,9 @@
-import { useEffect, useMemo, useState } from "react";
+import { ChangeEvent, useEffect, useMemo, useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { formatDistanceToNow } from "date-fns";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import {
   Dialog,
   DialogContent,
@@ -33,6 +34,7 @@ import {
   TrendingUp,
   TrendingDown,
   Download,
+  Upload,
   Pencil,
   Trash2,
   BarChart3,
@@ -58,6 +60,18 @@ type PendingDeletion = {
   description: string;
 };
 
+type ParsedImportRow = {
+  line: number;
+  transaction: {
+    type: "CASH_IN" | "CASH_OUT";
+    amount: number;
+    description: string;
+    category: string;
+    mode: string;
+    date: string;
+  };
+};
+
 const CashbookDetail = () => {
   const { id } = useParams();
   const navigate = useNavigate();
@@ -70,6 +84,7 @@ const CashbookDetail = () => {
     deleteTransaction,
     categories,
     paymentModes,
+    primaryCurrency,
   } = useCashbookContext();
 
   const cashbook = id ? getCashbookById(id) : undefined;
@@ -83,6 +98,10 @@ const CashbookDetail = () => {
   const [dialogMode, setDialogMode] = useState<DialogMode>("create");
   const [editingTransactionId, setEditingTransactionId] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
+  const [isImportDialogOpen, setIsImportDialogOpen] = useState(false);
+  const [importRows, setImportRows] = useState<ParsedImportRow[]>([]);
+  const [importErrors, setImportErrors] = useState<string[]>([]);
+  const [isImporting, setIsImporting] = useState(false);
   const [transactionForm, setTransactionForm] = useState<TransactionFormState>(() => ({
     type: "CASH_IN",
     amount: "",
@@ -101,11 +120,16 @@ const CashbookDetail = () => {
     }));
   }, [categories, paymentModes]);
 
-  const formatCurrency = (amount: number) =>
-    new Intl.NumberFormat("en-US", {
-      style: "currency",
-      currency: "USD",
-    }).format(amount);
+  const currencyFormatter = useMemo(
+    () =>
+      new Intl.NumberFormat(undefined, {
+        style: "currency",
+        currency: primaryCurrency,
+      }),
+    [primaryCurrency],
+  );
+
+  const formatCurrency = (amount: number) => currencyFormatter.format(amount);
 
   const formatDateTime = (date: string) =>
     new Date(date).toLocaleString("en-US", {
@@ -157,6 +181,248 @@ const CashbookDetail = () => {
     }
 
     return formatDistanceToNow(parsed, { addSuffix: true });
+  };
+
+  const resetImportState = () => {
+    setImportRows([]);
+    setImportErrors([]);
+    setIsImporting(false);
+  };
+
+  const splitCsvLine = (line: string) => {
+    const values: string[] = [];
+    let current = "";
+    let inQuotes = false;
+
+    for (let index = 0; index < line.length; index += 1) {
+      const char = line[index];
+      if (char === '"') {
+        if (inQuotes && line[index + 1] === '"') {
+          current += '"';
+          index += 1;
+        } else {
+          inQuotes = !inQuotes;
+        }
+      } else if (char === ',' && !inQuotes) {
+        values.push(current.trim());
+        current = "";
+      } else {
+        current += char;
+      }
+    }
+
+    values.push(current.trim());
+    return values;
+  };
+
+  const parseTemplateDate = (value: string) => {
+    const normalized = value.trim();
+    if (!normalized) {
+      return null;
+    }
+
+    const match = normalized.match(/^(\d{2})\/(\d{2})\/(\d{4})\s+(\d{1,2}):(\d{2})\s*(AM|PM)$/i);
+    if (!match) {
+      return null;
+    }
+
+    const [, dayStr, monthStr, yearStr, hourStr, minuteStr, periodRaw] = match;
+    const day = Number.parseInt(dayStr, 10);
+    const month = Number.parseInt(monthStr, 10) - 1;
+    const year = Number.parseInt(yearStr, 10);
+    let hours = Number.parseInt(hourStr, 10);
+    const minutes = Number.parseInt(minuteStr, 10);
+
+    if (Number.isNaN(day) || Number.isNaN(month) || Number.isNaN(year) || Number.isNaN(hours) || Number.isNaN(minutes)) {
+      return null;
+    }
+
+    const period = periodRaw.toUpperCase();
+    if (period === "AM") {
+      if (hours === 12) {
+        hours = 0;
+      }
+    } else if (period === "PM") {
+      if (hours !== 12) {
+        hours += 12;
+      }
+    } else {
+      return null;
+    }
+
+    const date = new Date(Date.UTC(year, month, day, hours, minutes));
+    if (Number.isNaN(date.getTime())) {
+      return null;
+    }
+
+    return date.toISOString();
+  };
+
+  const parseCsvContent = (content: string) => {
+    const lines = content.split(/\r?\n/);
+    const rows: ParsedImportRow[] = [];
+    const errors: string[] = [];
+
+    const categoryLookup = new Map(categories.map((category) => [category.name.toLowerCase(), category.name]));
+    const modeLookup = new Map(paymentModes.map((mode) => [mode.name.toLowerCase(), mode.name]));
+
+    const expectedHeaders = [
+      "transaction type",
+      "amount",
+      "description",
+      "category",
+      "payment mode",
+      "date & time",
+    ];
+
+    let headerChecked = false;
+
+    lines.forEach((rawLine, index) => {
+      const lineNumber = index + 1;
+      if (!rawLine.trim()) {
+        return;
+      }
+
+      const values = splitCsvLine(rawLine);
+      if (!values.length) {
+        return;
+      }
+
+      if (!headerChecked) {
+        const normalizedHeader = values.map((value) => value.replace(/\s+/g, " " ).trim().toLowerCase());
+        const isHeader = expectedHeaders.every((expected, headerIndex) => {
+          const current = normalizedHeader[headerIndex] ?? "";
+          return current.startsWith(expected);
+        });
+
+        if (isHeader) {
+          headerChecked = true;
+          return;
+        }
+      }
+
+      if (values.length < 6) {
+        errors.push(`Line ${lineNumber}: expected 6 columns but found ${values.length}.`);
+        return;
+      }
+
+      const [typeRaw, amountRaw, descriptionRaw, categoryRaw, modeRaw, dateRaw] = values;
+
+      const normalizedType = typeRaw.trim().toLowerCase();
+      let type: "CASH_IN" | "CASH_OUT" | null = null;
+      if (normalizedType === "cash in" || normalizedType === "cashin" || normalizedType === "cash_in") {
+        type = "CASH_IN";
+      } else if (normalizedType === "cash out" || normalizedType === "cashout" || normalizedType === "cash_out") {
+        type = "CASH_OUT";
+      }
+
+      if (!type) {
+        errors.push(`Line ${lineNumber}: invalid transaction type "${typeRaw}".`);
+        return;
+      }
+
+      const amountValue = Number.parseFloat(amountRaw.replace(/,/g, ""));
+      if (!Number.isFinite(amountValue) || amountValue <= 0) {
+        errors.push(`Line ${lineNumber}: amount must be a positive number.`);
+        return;
+      }
+
+      const categoryName = categoryRaw.trim();
+      const categoryKey = categoryName.toLowerCase();
+      if (!categoryLookup.has(categoryKey)) {
+        errors.push(`Line ${lineNumber}: category "${categoryName}" does not exist. Add it in Settings before importing.`);
+        return;
+      }
+      const resolvedCategory = categoryLookup.get(categoryKey)!;
+
+      const modeName = modeRaw.trim();
+      const modeKey = modeName.toLowerCase();
+      if (!modeLookup.has(modeKey)) {
+        errors.push(`Line ${lineNumber}: payment mode "${modeName}" does not exist. Add it in Settings before importing.`);
+        return;
+      }
+      const resolvedMode = modeLookup.get(modeKey)!;
+
+      const isoDate = parseTemplateDate(dateRaw);
+      if (!isoDate) {
+        errors.push(`Line ${lineNumber}: date must follow DD/MM/YYYY HH:MM AM/PM format.`);
+        return;
+      }
+
+      rows.push({
+        line: lineNumber,
+        transaction: {
+          type,
+          amount: Number.parseFloat(amountValue.toFixed(2)),
+          description: descriptionRaw.trim(),
+          category: resolvedCategory,
+          mode: resolvedMode,
+          date: isoDate,
+        },
+      });
+    });
+
+    if (!rows.length && !errors.length) {
+      errors.push("No data rows found in the file.");
+    }
+
+    return { rows, errors };
+  };
+
+  const handleImportFileChange = async (event: ChangeEvent<HTMLInputElement>) => {
+    if (!cashbook) {
+      return;
+    }
+
+    const { files } = event.target;
+    if (!files?.length) {
+      return;
+    }
+
+    const file = files[0];
+    const content = await file.text();
+    const { rows, errors } = parseCsvContent(content);
+
+    setImportErrors(errors);
+    setImportRows(errors.length ? [] : rows);
+
+    event.target.value = "";
+  };
+
+  const handleDownloadTemplate = () => {
+    const header = "Transaction Type,Amount,Description,Category,Payment Mode,Date & Time";
+    const sample = "Cash In,1500,Sample income,Salary,Bank Transfer,01/01/2025 09:00 AM";
+    const csvContent = `${header}\n${sample}`;
+    const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = "coinflow-import-template.csv";
+    link.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const handleImportTransactions = () => {
+    if (!cashbook || importRows.length === 0) {
+      return;
+    }
+
+    setIsImporting(true);
+    try {
+      importRows.forEach((row) => {
+        addTransaction(cashbook.id, row.transaction);
+      });
+
+      toast({
+        title: "Transactions imported",
+        description: `${importRows.length} ${importRows.length === 1 ? "transaction" : "transactions"} added from CSV.`,
+      });
+
+      resetImportState();
+      setIsImportDialogOpen(false);
+    } finally {
+      setIsImporting(false);
+    }
   };
 
   const resetForm = () => {
@@ -335,6 +601,106 @@ const CashbookDetail = () => {
                   <Button variant="outline" onClick={handleExportTransactions}>
                     <Download className="h-4 w-4 mr-2" /> Export CSV
                   </Button>
+                  <Dialog
+                    open={isImportDialogOpen}
+                    onOpenChange={(open) => {
+                      setIsImportDialogOpen(open);
+                      if (!open) {
+                        resetImportState();
+                      }
+                    }}
+                  >
+                    <DialogTrigger asChild>
+                      <Button variant="outline" className="gap-2">
+                        <Upload className="h-4 w-4" />
+                        Import CSV
+                      </Button>
+                    </DialogTrigger>
+                    <DialogContent className="max-w-3xl">
+                      <DialogHeader>
+                        <DialogTitle>Import Transactions from CSV</DialogTitle>
+                        <DialogDescription>Upload the Coinflow CSV template. Categories and payment modes must already exist.</DialogDescription>
+                      </DialogHeader>
+                      <div className="space-y-4">
+                        <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+                          <Input type="file" accept=".csv" onChange={handleImportFileChange} />
+                          <Button type="button" variant="outline" onClick={handleDownloadTemplate}>
+                            Download template
+                          </Button>
+                        </div>
+                        {importErrors.length > 0 && (
+                          <Alert variant="destructive">
+                            <AlertTitle>We spotted some issues</AlertTitle>
+                            <AlertDescription>
+                              <ul className="list-disc pl-4 space-y-1">
+                                {importErrors.map((message) => (
+                                  <li key={message}>{message}</li>
+                                ))}
+                              </ul>
+                            </AlertDescription>
+                          </Alert>
+                        )}
+                        {importRows.length > 0 && (
+                          <div className="space-y-2">
+                            <p className="text-sm text-muted-foreground">
+                              Ready to import {importRows.length} {importRows.length === 1 ? "transaction" : "transactions"}.
+                            </p>
+                            <div className="rounded-lg border overflow-hidden">
+                              <Table>
+                                <TableHeader>
+                                  <TableRow>
+                                    <TableHead>Line</TableHead>
+                                    <TableHead>Type</TableHead>
+                                    <TableHead>Description</TableHead>
+                                    <TableHead>Category</TableHead>
+                                    <TableHead>Mode</TableHead>
+                                    <TableHead>Amount</TableHead>
+                                    <TableHead>Date & Time</TableHead>
+                                  </TableRow>
+                                </TableHeader>
+                                <TableBody>
+                                  {importRows.map((row) => (
+                                    <TableRow key={row.line}>
+                                      <TableCell>Line {row.line}</TableCell>
+                                      <TableCell>{row.transaction.type === "CASH_IN" ? "Cash In" : "Cash Out"}</TableCell>
+                                      <TableCell>{row.transaction.description || "?"}</TableCell>
+                                      <TableCell>{row.transaction.category}</TableCell>
+                                      <TableCell>{row.transaction.mode}</TableCell>
+                                      <TableCell>{formatCurrency(row.transaction.amount)}</TableCell>
+                                      <TableCell>{new Date(row.transaction.date).toLocaleString()}</TableCell>
+                                    </TableRow>
+                                  ))}
+                                </TableBody>
+                              </Table>
+                            </div>
+                          </div>
+                        )}
+                        <div className="flex justify-end gap-2">
+                          <Button
+                            type="button"
+                            variant="outline"
+                            onClick={() => {
+                              resetImportState();
+                              setIsImportDialogOpen(false);
+                            }}
+                          >
+                            Cancel
+                          </Button>
+                          <Button
+                            type="button"
+                            onClick={handleImportTransactions}
+                            disabled={importRows.length === 0 || isImporting}
+                          >
+                            {isImporting
+                              ? "Importing..."
+                              : importRows.length > 0
+                                ? `Import ${importRows.length} ${importRows.length === 1 ? "transaction" : "transactions"}`
+                                : "Import"}
+                          </Button>
+                        </div>
+                      </div>
+                    </DialogContent>
+                  </Dialog>
                   <Dialog
                     open={isDialogOpen}
                     onOpenChange={(open) => {

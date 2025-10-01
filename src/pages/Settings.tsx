@@ -5,11 +5,21 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { ArrowLeft, Plus, Pencil, Trash2, Settings as SettingsIcon, Tag, CreditCard } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { useCashbookContext } from "@/context/CashbookContext";
+
+const currencyOptions = [
+  { code: "USD", label: "US Dollar (USD)" },
+  { code: "EUR", label: "Euro (EUR)" },
+  { code: "GBP", label: "British Pound (GBP)" },
+  { code: "CAD", label: "Canadian Dollar (CAD)" },
+  { code: "AUD", label: "Australian Dollar (AUD)" },
+  { code: "INR", label: "Indian Rupee (INR)" },
+];
 
 const Settings = () => {
   const navigate = useNavigate();
@@ -21,6 +31,8 @@ const Settings = () => {
     removeCategory,
     addPaymentMode,
     removePaymentMode,
+    primaryCurrency,
+    updatePrimaryCurrency,
   } = useCashbookContext();
 
   const [categoryName, setCategoryName] = useState("");
@@ -91,6 +103,15 @@ const Settings = () => {
     toast({
       title: "Payment mode deleted",
       description: `"${name}" has been removed from your payment modes.`,
+    });
+  };
+
+  const handleCurrencyChange = (value: string) => {
+    updatePrimaryCurrency(value);
+    const selection = currencyOptions.find((option) => option.code === value);
+    toast({
+      title: "Primary currency updated",
+      description: selection ? `${selection.label} will be used for totals and reports.` : "Currency preference saved.",
     });
   };
 
@@ -303,6 +324,24 @@ const Settings = () => {
           </CardHeader>
           <CardContent>
             <div className="space-y-4">
+              <div className="flex flex-col gap-3 rounded-lg border p-4 md:flex-row md:items-center md:justify-between">
+                <div>
+                  <h4 className="font-medium">Primary Currency</h4>
+                  <p className="text-sm text-muted-foreground">Choose the currency used for balances, dashboards, and reports.</p>
+                </div>
+                <Select value={primaryCurrency} onValueChange={handleCurrencyChange}>
+                  <SelectTrigger className="w-full md:w-[220px]">
+                    <SelectValue placeholder="Select currency" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {currencyOptions.map((option) => (
+                      <SelectItem key={option.code} value={option.code}>
+                        {option.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
               <div className="flex items-center justify-between p-4 border rounded-lg">
                 <div>
                   <h4 className="font-medium">Export Preferences</h4>

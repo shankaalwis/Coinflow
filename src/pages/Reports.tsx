@@ -28,7 +28,7 @@ const escapeHtml = (value: string) =>
 const Reports = () => {
   const navigate = useNavigate();
   const { toast } = useToast();
-  const { transactions, cashbooks } = useCashbookContext();
+  const { transactions, cashbooks, primaryCurrency } = useCashbookContext();
 
   const now = new Date();
   const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().slice(0, 10);
@@ -85,11 +85,16 @@ const Reports = () => {
     };
   }, [filteredTransactions]);
 
-  const formatCurrency = (amount: number) =>
-    new Intl.NumberFormat("en-US", {
-      style: "currency",
-      currency: "USD",
-    }).format(amount);
+  const currencyFormatter = useMemo(
+    () =>
+      new Intl.NumberFormat(undefined, {
+        style: "currency",
+        currency: primaryCurrency,
+      }),
+    [primaryCurrency],
+  );
+
+  const formatCurrency = (amount: number) => currencyFormatter.format(amount);
 
   const handleGenerateReport = () => {
     if (!filteredTransactions.length) {
