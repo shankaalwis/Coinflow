@@ -60,6 +60,7 @@ type PersistedState = {
   transactions: Transaction[];
   categories: Category[];
   paymentModes: PaymentMode[];
+  primaryCurrency: string;
 };
 
 type CashbookContextValue = {
@@ -79,6 +80,8 @@ type CashbookContextValue = {
   removeCategory: (id: string) => void;
   addPaymentMode: (name: string) => void;
   removePaymentMode: (id: string) => void;
+  primaryCurrency: string;
+  updatePrimaryCurrency: (currency: string) => void;
 };
 
 const STORAGE_KEY_PREFIX = "coinflow:data";
@@ -88,6 +91,8 @@ const isBrowser = typeof window !== "undefined";
 const DEFAULT_CATEGORY_NAMES = ["Salary", "Groceries", "Rent", "Utilities", "Consulting"] as const;
 
 const DEFAULT_PAYMENT_MODE_NAMES = ["Cash", "Bank Transfer", "Card", "Digital Wallet"] as const;
+
+const DEFAULT_PRIMARY_CURRENCY = "USD";
 
 const generateId = () => {
   if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
@@ -132,6 +137,7 @@ const buildDefaultState = (): PersistedState => ({
   transactions: [],
   categories: createDefaultCategories(),
   paymentModes: createDefaultPaymentModes(),
+  primaryCurrency: DEFAULT_PRIMARY_CURRENCY,
 });
 
 const loadPersistedState = (key: string): PersistedState => {
@@ -151,6 +157,9 @@ const loadPersistedState = (key: string): PersistedState => {
       transactions: parsed.transactions ?? [],
       categories: parsed.categories?.length ? parsed.categories : createDefaultCategories(),
       paymentModes: parsed.paymentModes?.length ? parsed.paymentModes : createDefaultPaymentModes(),
+      primaryCurrency: typeof parsed.primaryCurrency === "string" && parsed.primaryCurrency
+        ? parsed.primaryCurrency
+        : DEFAULT_PRIMARY_CURRENCY,
     };
   } catch (error) {
     console.error("Failed to read cashbook data from storage", error);
@@ -211,6 +220,7 @@ const normalizeStateForPersistence = (state: PersistedState): PersistedState => 
     transactions,
     categories,
     paymentModes,
+    primaryCurrency: state.primaryCurrency || DEFAULT_PRIMARY_CURRENCY,
   };
 };
 
@@ -218,7 +228,7 @@ const recalcCashbooks = (cashbooks: Cashbook[], transactions: Transaction[]): Ca
   cashbooks.map((cashbook) => ({
     ...cashbook,
     balance: calculateBalance(cashbook.id, transactions),
-    lastActivity: getLatestActivity(cashbook.id, transactions) ?? cashbook.lastActivity ?? null,
+    lastActivity: getLatestActivity(cashbook.id, transactions),
   }));
 
 const CashbookContext = createContext<CashbookContextValue | undefined>(undefined);
@@ -234,6 +244,7 @@ export const CashbookProvider = ({ children }: { children: ReactNode }) => {
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [categories, setCategories] = useState<Category[]>(() => createDefaultCategories());
   const [paymentModes, setPaymentModes] = useState<PaymentMode[]>(() => createDefaultPaymentModes());
+  const [primaryCurrency, setPrimaryCurrency] = useState<string>(DEFAULT_PRIMARY_CURRENCY);
   const [hydratedKey, setHydratedKey] = useState<string | null>(null);
 
   const applyPersistedState = useCallback((state: PersistedState) => {
@@ -243,6 +254,7 @@ export const CashbookProvider = ({ children }: { children: ReactNode }) => {
     setTransactions(normalized.transactions);
     setCategories(cloneCategories(normalized.categories));
     setPaymentModes(clonePaymentModes(normalized.paymentModes));
+    setPrimaryCurrency(normalized.primaryCurrency || DEFAULT_PRIMARY_CURRENCY);
   }, []);
 
   const loadStateFromSupabase = useCallback(
@@ -324,6 +336,7 @@ export const CashbookProvider = ({ children }: { children: ReactNode }) => {
           transactions,
           categories,
           paymentModes,
+          primaryCurrency: DEFAULT_PRIMARY_CURRENCY,
         };
       } catch (error) {
         console.error("Unexpected error while loading data from Supabase", error);
@@ -342,6 +355,7 @@ export const CashbookProvider = ({ children }: { children: ReactNode }) => {
     setHydratedKey(null);
 
     const hydrate = async () => {
+      const localSnapshot = loadPersistedState(storageKey);
       let state: PersistedState | null = null;
 
       if (user?.id) {
@@ -352,7 +366,12 @@ export const CashbookProvider = ({ children }: { children: ReactNode }) => {
         return;
       }
 
-      const fallbackState = state ?? loadPersistedState(storageKey);
+      const fallbackState = state
+        ? {
+            ...state,
+            primaryCurrency: state.primaryCurrency || localSnapshot.primaryCurrency || DEFAULT_PRIMARY_CURRENCY,
+          }
+        : localSnapshot;
       applyPersistedState(fallbackState);
       setHydratedKey(storageKey);
     };
@@ -374,10 +393,11 @@ export const CashbookProvider = ({ children }: { children: ReactNode }) => {
       transactions,
       categories,
       paymentModes,
+      primaryCurrency,
     });
 
     window.localStorage.setItem(storageKey, JSON.stringify(state));
-  }, [cashbooks, transactions, categories, paymentModes, storageKey, hydratedKey]);
+  }, [cashbooks, transactions, categories, paymentModes, primaryCurrency, storageKey, hydratedKey]);
 
   const getCashbookById = useCallback(
     (id: string) => cashbooks.find((cashbook) => cashbook.id === id),
@@ -392,13 +412,12 @@ export const CashbookProvider = ({ children }: { children: ReactNode }) => {
   const createCashbook = useCallback(
     (name: string) => {
       const id = generateId();
-      const now = new Date().toISOString();
 
       const newCashbook: Cashbook = {
         id,
         name,
         balance: 0,
-        lastActivity: now,
+        lastActivity: null,
       };
 
       setCashbooks((prev) => [...prev, newCashbook]);
@@ -793,6 +812,15 @@ export const CashbookProvider = ({ children }: { children: ReactNode }) => {
     [paymentModes, transactions, user?.id],
   );
 
+  const updatePrimaryCurrency = useCallback((currency: string) => {
+    const normalized = currency.trim().toUpperCase();
+    if (!normalized) {
+      return;
+    }
+
+    setPrimaryCurrency(normalized);
+  }, []);
+
   const value: CashbookContextValue = useMemo(
     () => ({
       cashbooks,
@@ -811,12 +839,15 @@ export const CashbookProvider = ({ children }: { children: ReactNode }) => {
       removeCategory,
       addPaymentMode,
       removePaymentMode,
+      primaryCurrency,
+      updatePrimaryCurrency,
     }),
     [
       cashbooks,
       transactions,
       categories,
       paymentModes,
+      primaryCurrency,
       createCashbook,
       updateCashbook,
       deleteCashbook,
@@ -829,6 +860,7 @@ export const CashbookProvider = ({ children }: { children: ReactNode }) => {
       removeCategory,
       addPaymentMode,
       removePaymentMode,
+      updatePrimaryCurrency,
     ],
   );
 

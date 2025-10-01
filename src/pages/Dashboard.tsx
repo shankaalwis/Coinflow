@@ -37,17 +37,15 @@ import { ThemeToggle } from "@/components/theme-toggle";
 import { useAuth } from "@/hooks/useAuth";
 
 
-const formatCurrency = (amount: number) =>
-  new Intl.NumberFormat("en-US", {
-    style: "currency",
-    currency: "USD",
-  }).format(amount);
-
 const formatTransactionDate = (iso: string) =>
   new Date(iso).toLocaleDateString("en-US", {
     month: "short",
     day: "numeric",
   });
+
+
+
+
 
 const Dashboard = () => {
   const [cashbookName, setCashbookName] = useState("");
@@ -59,7 +57,21 @@ const Dashboard = () => {
   const navigate = useNavigate();
   const { toast } = useToast();
   const { signOut } = useAuth();
-  const { cashbooks, createCashbook, updateCashbook, deleteCashbook, transactions } = useCashbookContext();
+  const { cashbooks, createCashbook, updateCashbook, deleteCashbook, transactions, primaryCurrency } = useCashbookContext();
+
+  const currencyFormatter = useMemo(
+    () =>
+      new Intl.NumberFormat(undefined, {
+        style: "currency",
+        currency: primaryCurrency,
+      }),
+    [primaryCurrency],
+  );
+
+  const formatCurrency = useMemo(
+    () => (amount: number) => currencyFormatter.format(amount),
+    [currencyFormatter],
+  );
 
   const hasCashbooks = cashbooks.length > 0;
   const transactionsByCashbook = useMemo(() => {
