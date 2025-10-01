@@ -159,7 +159,7 @@ const Dashboard = () => {
       {/* Header */}
       <header className="border-b bg-card">
         <div className="container mx-auto px-4 py-4">
-          <div className="flex items-center justify-between">
+          <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
             <div className="flex items-center gap-3">
               <div className="p-2 rounded-lg bg-gradient-primary">
                 <TrendingUp className="h-6 w-6 text-white" />
@@ -190,7 +190,7 @@ const Dashboard = () => {
       {/* Main Content */}
       <main className="container mx-auto px-4 py-8">
         {/* Page Header */}
-        <div className="flex items-center justify-between mb-8">
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between mb-8">
           <div>
             <h2 className="text-3xl font-bold text-foreground mb-2">Your Cashbooks</h2>
             <p className="text-muted-foreground">Manage your financial accounts</p>

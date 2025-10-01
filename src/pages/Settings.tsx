@@ -18,7 +18,14 @@ const currencyOptions = [
   { code: "GBP", label: "British Pound (GBP)" },
   { code: "CAD", label: "Canadian Dollar (CAD)" },
   { code: "AUD", label: "Australian Dollar (AUD)" },
+  { code: "NZD", label: "New Zealand Dollar (NZD)" },
+  { code: "SGD", label: "Singapore Dollar (SGD)" },
+  { code: "CHF", label: "Swiss Franc (CHF)" },
+  { code: "JPY", label: "Japanese Yen (JPY)" },
+  { code: "CNY", label: "Chinese Yuan (CNY)" },
+  { code: "HKD", label: "Hong Kong Dollar (HKD)" },
   { code: "INR", label: "Indian Rupee (INR)" },
+  { code: "LKR", label: "Sri Lankan Rupee (LKR)" },
 ];
 
 const Settings = () => {
@@ -121,17 +128,19 @@ const Settings = () => {
       <header className="border-b bg-card">
         <div className="container mx-auto px-4 py-4">
           <div className="flex items-center justify-between">
-            <div className="flex items-center gap-4">
+            <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex flex-1 flex-wrap items-center gap-3">
               <Button variant="ghost" size="sm" onClick={() => navigate("/dashboard")}>
                 <ArrowLeft className="h-4 w-4 mr-2" />
                 Back to Dashboard
               </Button>
               <div>
                 <h1 className="text-2xl font-bold text-foreground">Settings</h1>
-                <p className="text-sm text-muted-foreground">Manage your categories and payment modes</p>
+                <p className="text-sm text-muted-foreground">Manage your workspace preferences</p>
               </div>
             </div>
             <div className="flex items-center gap-2">
+              <span className="hidden text-xs font-medium uppercase tracking-[0.25em] text-muted-foreground sm:inline">Coinflow v1.5.0</span>
               <Button variant="outline" onClick={() => navigate("/account")}>
                 <SettingsIcon className="h-4 w-4 mr-2" />
                 Account
@@ -139,12 +148,14 @@ const Settings = () => {
               <ThemeToggle />
             </div>
           </div>
+          <span className="mt-2 block text-xs font-medium uppercase tracking-[0.25em] text-muted-foreground sm:hidden">Coinflow v1.5.0</span>
+          </div>
         </div>
       </header>
 
       {/* Main Content */}
       <main className="container mx-auto px-4 py-8">
-        <div className="grid gap-8 lg:grid-cols-2">
+        <div className="grid gap-6 lg:grid-cols-2 xl:gap-8">
           {/* Categories Management */}
           <Card className="shadow-card">
             <CardHeader>

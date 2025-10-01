@@ -72,6 +72,8 @@ type ParsedImportRow = {
   };
 };
 
+type SortOption = "DATE_DESC" | "DATE_ASC" | "CASH_IN_DESC" | "CASH_OUT_DESC";
+
 const CashbookDetail = () => {
   const { id } = useParams();
   const navigate = useNavigate();
@@ -102,6 +104,13 @@ const CashbookDetail = () => {
   const [importRows, setImportRows] = useState<ParsedImportRow[]>([]);
   const [importErrors, setImportErrors] = useState<string[]>([]);
   const [isImporting, setIsImporting] = useState(false);
+  const [missingCategories, setMissingCategories] = useState<string[]>([]);
+  const [missingPaymentModes, setMissingPaymentModes] = useState<string[]>([]);
+  const [sortOption, setSortOption] = useState<SortOption>("DATE_DESC");
+  const [filterCategory, setFilterCategory] = useState<string>("all");
+  const [filterMode, setFilterMode] = useState<string>("all");
+  const [filterStartDate, setFilterStartDate] = useState<string>("");
+  const [filterEndDate, setFilterEndDate] = useState<string>("");
   const [transactionForm, setTransactionForm] = useState<TransactionFormState>(() => ({
     type: "CASH_IN",
     amount: "",
@@ -142,33 +151,119 @@ const CashbookDetail = () => {
 
   const filteredTransactions = useMemo(() => {
     const query = searchQuery.trim().toLowerCase();
-    if (!query) {
-      return transactions;
-    }
+    const startDate = filterStartDate ? new Date(`${filterStartDate}T00:00:00`) : null;
+    const endDate = filterEndDate ? new Date(`${filterEndDate}T23:59:59.999`) : null;
 
-    return transactions.filter((transaction) => {
+    const subset = transactions.filter((transaction) => {
       const haystack = `${transaction.description} ${transaction.category} ${transaction.mode}`.toLowerCase();
-      return haystack.includes(query);
-    });
-  }, [transactions, searchQuery]);
 
-  const cashInTotal = useMemo(
+      if (query && !haystack.includes(query)) {
+        return false;
+      }
+
+      if (filterCategory !== "all" && transaction.category !== filterCategory) {
+        return false;
+      }
+
+      if (filterMode !== "all" && transaction.mode !== filterMode) {
+        return false;
+      }
+
+      const transactionDate = new Date(transaction.date);
+      if (Number.isNaN(transactionDate.getTime())) {
+        return false;
+      }
+
+      if (startDate && transactionDate < startDate) {
+        return false;
+      }
+
+      if (endDate && transactionDate > endDate) {
+        return false;
+      }
+
+      return true;
+    });
+
+    const sorted = [...subset];
+    sorted.sort((a, b) => {
+      const dateA = new Date(a.date).getTime();
+      const dateB = new Date(b.date).getTime();
+
+      switch (sortOption) {
+        case "DATE_ASC":
+          return dateA - dateB;
+        case "CASH_IN_DESC": {
+          const aIsIn = a.type === "CASH_IN";
+          const bIsIn = b.type === "CASH_IN";
+          if (aIsIn && !bIsIn) {
+            return -1;
+          }
+          if (!aIsIn && bIsIn) {
+            return 1;
+          }
+          if (aIsIn && bIsIn) {
+            if (b.amount !== a.amount) {
+              return b.amount - a.amount;
+            }
+            return dateB - dateA;
+          }
+          return dateB - dateA;
+        }
+        case "CASH_OUT_DESC": {
+          const aIsOut = a.type === "CASH_OUT";
+          const bIsOut = b.type === "CASH_OUT";
+          if (aIsOut && !bIsOut) {
+            return -1;
+          }
+          if (!aIsOut && bIsOut) {
+            return 1;
+          }
+          if (aIsOut && bIsOut) {
+            if (b.amount !== a.amount) {
+              return b.amount - a.amount;
+            }
+            return dateB - dateA;
+          }
+          return dateB - dateA;
+        }
+        case "DATE_DESC":
+        default:
+          return dateB - dateA;
+      }
+    });
+
+    return sorted;
+  }, [
+    transactions,
+    searchQuery,
+    filterCategory,
+    filterMode,
+    filterStartDate,
+    filterEndDate,
+    sortOption,
+  ]);
+
+  const filteredCashInTotal = useMemo(
     () =>
-      transactions
+      filteredTransactions
         .filter((transaction) => transaction.type === "CASH_IN")
         .reduce((total, transaction) => total + transaction.amount, 0),
-    [transactions],
+    [filteredTransactions],
   );
 
-  const cashOutTotal = useMemo(
+  const filteredCashOutTotal = useMemo(
     () =>
-      transactions
+      filteredTransactions
         .filter((transaction) => transaction.type === "CASH_OUT")
         .reduce((total, transaction) => total + transaction.amount, 0),
-    [transactions],
+    [filteredTransactions],
   );
 
-  const netCashFlow = useMemo(() => cashInTotal - cashOutTotal, [cashInTotal, cashOutTotal]);
+  const netCashFlow = useMemo(
+    () => filteredCashInTotal - filteredCashOutTotal,
+    [filteredCashInTotal, filteredCashOutTotal],
+  );
 
   const lastActivityLabel = () => {
     if (!cashbook?.lastActivity) {
@@ -186,6 +281,8 @@ const CashbookDetail = () => {
   const resetImportState = () => {
     setImportRows([]);
     setImportErrors([]);
+    setMissingCategories([]);
+    setMissingPaymentModes([]);
     setIsImporting(false);
   };
 
@@ -215,18 +312,22 @@ const CashbookDetail = () => {
     return values;
   };
 
-  const parseTemplateDate = (value: string) => {
-    const normalized = value.trim();
-    if (!normalized) {
+  const parseTemplateDateTime = (dateValue: string, timeValue: string) => {
+    const normalizedDate = dateValue.trim();
+    const normalizedTime = timeValue.trim();
+    if (!normalizedDate || !normalizedTime) {
       return null;
     }
 
-    const match = normalized.match(/^(\d{2})\/(\d{2})\/(\d{4})\s+(\d{1,2}):(\d{2})\s*(AM|PM)$/i);
-    if (!match) {
+    const dateMatch = normalizedDate.match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
+    const timeMatch = normalizedTime.match(/^(\d{1,2}):(\d{2})\s*(AM|PM)$/i);
+    if (!dateMatch || !timeMatch) {
       return null;
     }
 
-    const [, dayStr, monthStr, yearStr, hourStr, minuteStr, periodRaw] = match;
+    const [, dayStr, monthStr, yearStr] = dateMatch;
+    const [, hourStr, minuteStr, periodRaw] = timeMatch;
+
     const day = Number.parseInt(dayStr, 10);
     const month = Number.parseInt(monthStr, 10) - 1;
     const year = Number.parseInt(yearStr, 10);
@@ -262,6 +363,8 @@ const CashbookDetail = () => {
     const lines = content.split(/\r?\n/);
     const rows: ParsedImportRow[] = [];
     const errors: string[] = [];
+    const missingCategorySet = new Set<string>();
+    const missingModeSet = new Set<string>();
 
     const categoryLookup = new Map(categories.map((category) => [category.name.toLowerCase(), category.name]));
     const modeLookup = new Map(paymentModes.map((mode) => [mode.name.toLowerCase(), mode.name]));
@@ -272,7 +375,8 @@ const CashbookDetail = () => {
       "description",
       "category",
       "payment mode",
-      "date & time",
+      "date",
+      "time",
     ];
 
     let headerChecked = false;
@@ -289,7 +393,7 @@ const CashbookDetail = () => {
       }
 
       if (!headerChecked) {
-        const normalizedHeader = values.map((value) => value.replace(/\s+/g, " " ).trim().toLowerCase());
+        const normalizedHeader = values.map((value) => value.replace(/\s+/g, " ").trim().toLowerCase());
         const isHeader = expectedHeaders.every((expected, headerIndex) => {
           const current = normalizedHeader[headerIndex] ?? "";
           return current.startsWith(expected);
@@ -301,12 +405,12 @@ const CashbookDetail = () => {
         }
       }
 
-      if (values.length < 6) {
-        errors.push(`Line ${lineNumber}: expected 6 columns but found ${values.length}.`);
+      if (values.length < 7) {
+        errors.push(`Line ${lineNumber}: expected 7 columns but found ${values.length}.`);
         return;
       }
 
-      const [typeRaw, amountRaw, descriptionRaw, categoryRaw, modeRaw, dateRaw] = values;
+      const [typeRaw, amountRaw, descriptionRaw, categoryRaw, modeRaw, dateRaw, timeRaw] = values;
 
       const normalizedType = typeRaw.trim().toLowerCase();
       let type: "CASH_IN" | "CASH_OUT" | null = null;
@@ -328,24 +432,30 @@ const CashbookDetail = () => {
       }
 
       const categoryName = categoryRaw.trim();
+      if (!categoryName) {
+        errors.push(`Line ${lineNumber}: category cannot be empty.`);
+        return;
+      }
       const categoryKey = categoryName.toLowerCase();
       if (!categoryLookup.has(categoryKey)) {
-        errors.push(`Line ${lineNumber}: category "${categoryName}" does not exist. Add it in Settings before importing.`);
-        return;
+        missingCategorySet.add(categoryName);
       }
-      const resolvedCategory = categoryLookup.get(categoryKey)!;
+      const resolvedCategory = categoryLookup.get(categoryKey) ?? categoryName;
 
       const modeName = modeRaw.trim();
-      const modeKey = modeName.toLowerCase();
-      if (!modeLookup.has(modeKey)) {
-        errors.push(`Line ${lineNumber}: payment mode "${modeName}" does not exist. Add it in Settings before importing.`);
+      if (!modeName) {
+        errors.push(`Line ${lineNumber}: payment mode cannot be empty.`);
         return;
       }
-      const resolvedMode = modeLookup.get(modeKey)!;
+      const modeKey = modeName.toLowerCase();
+      if (!modeLookup.has(modeKey)) {
+        missingModeSet.add(modeName);
+      }
+      const resolvedMode = modeLookup.get(modeKey) ?? modeName;
 
-      const isoDate = parseTemplateDate(dateRaw);
+      const isoDate = parseTemplateDateTime(dateRaw, timeRaw);
       if (!isoDate) {
-        errors.push(`Line ${lineNumber}: date must follow DD/MM/YYYY HH:MM AM/PM format.`);
+        errors.push(`Line ${lineNumber}: date and time must follow DD/MM/YYYY and HH:MM AM/PM format.`);
         return;
       }
 
@@ -366,7 +476,12 @@ const CashbookDetail = () => {
       errors.push("No data rows found in the file.");
     }
 
-    return { rows, errors };
+    return {
+      rows,
+      errors,
+      missingCategories: Array.from(missingCategorySet),
+      missingModes: Array.from(missingModeSet),
+    };
   };
 
   const handleImportFileChange = async (event: ChangeEvent<HTMLInputElement>) => {
@@ -381,17 +496,19 @@ const CashbookDetail = () => {
 
     const file = files[0];
     const content = await file.text();
-    const { rows, errors } = parseCsvContent(content);
+    const { rows, errors, missingCategories: missingCats, missingModes: missingMods } = parseCsvContent(content);
 
     setImportErrors(errors);
+    setMissingCategories(missingCats);
+    setMissingPaymentModes(missingMods);
     setImportRows(errors.length ? [] : rows);
 
     event.target.value = "";
   };
 
   const handleDownloadTemplate = () => {
-    const header = "Transaction Type,Amount,Description,Category,Payment Mode,Date & Time";
-    const sample = "Cash In,1500,Sample income,Salary,Bank Transfer,01/01/2025 09:00 AM";
+    const header = "Transaction Type,Amount,Description,Category,Payment Mode,Date,Time";
+    const sample = "Cash In,1500,Sample income,Salary,Bank Transfer,01/01/2025,09:00 AM";
     const csvContent = `${header}\n${sample}`;
     const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
     const url = URL.createObjectURL(blob);
@@ -402,8 +519,54 @@ const CashbookDetail = () => {
     URL.revokeObjectURL(url);
   };
 
+  const handleCreateMissingCategory = (name: string) => {
+    const trimmed = name.trim();
+    if (!trimmed) {
+      return;
+    }
+
+    addCategory(trimmed);
+    setMissingCategories((prev) => prev.filter((item) => item.toLowerCase() != trimmed.toLowerCase()));
+    toast({
+      title: "Category added",
+      description: `"${trimmed}" is now available for import.`,
+    });
+  };
+
+  const handleCreateMissingMode = (name: string) => {
+    const trimmed = name.trim();
+    if (!trimmed) {
+      return;
+    }
+
+    addPaymentMode(trimmed);
+    setMissingPaymentModes((prev) => prev.filter((item) => item.toLowerCase() != trimmed.toLowerCase()));
+    toast({
+      title: "Payment mode added",
+      description: `"${trimmed}" is now available for import.`,
+    });
+  };
+
+  const handleResetFilters = () => {
+    setSortOption("DATE_DESC");
+    setFilterCategory("all");
+    setFilterMode("all");
+    setFilterStartDate("");
+    setFilterEndDate("");
+    setSearchQuery("");
+  };
+
   const handleImportTransactions = () => {
     if (!cashbook || importRows.length === 0) {
+      return;
+    }
+
+    if (missingCategories.length || missingPaymentModes.length) {
+      toast({
+        title: "Add missing data first",
+        description: "Please add the missing categories and payment modes before importing.",
+        variant: "destructive",
+      });
       return;
     }
 
@@ -595,7 +758,7 @@ const CashbookDetail = () => {
                   <p className={`text-4xl font-bold ${cashbook.balance >= 0 ? "text-income" : "text-expense"}`}>
                     {formatCurrency(cashbook.balance)}
                   </p>
-                  <p className="text-sm text-muted-foreground mt-2">Updated {lastActivityLabel()}</p>
+                  <p className="text-sm text-muted-foreground mt-2">Updated {lastActivityLabel()} ? Showing {filteredTransactions.length} transaction{filteredTransactions.length === 1 ? '' : 's'}</p>
                 </div>
                 <div className="flex flex-wrap gap-2">
                   <Button variant="outline" onClick={handleExportTransactions}>
@@ -619,7 +782,7 @@ const CashbookDetail = () => {
                     <DialogContent className="max-w-3xl">
                       <DialogHeader>
                         <DialogTitle>Import Transactions from CSV</DialogTitle>
-                        <DialogDescription>Upload the Coinflow CSV template. Categories and payment modes must already exist.</DialogDescription>
+                        <DialogDescription>Upload the Coinflow CSV template with separate Date and Time columns. Missing categories or payment modes can be added here before you import.</DialogDescription>
                       </DialogHeader>
                       <div className="space-y-4">
                         <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
@@ -640,12 +803,45 @@ const CashbookDetail = () => {
                             </AlertDescription>
                           </Alert>
                         )}
+                        {(missingCategories.length > 0 || missingPaymentModes.length > 0) && (
+                          <div className="space-y-3 rounded-lg border border-primary/40 bg-primary/5 p-4">
+                            <p className="text-sm font-medium text-primary">Add missing data to complete your import</p>
+                            {missingCategories.length > 0 && (
+                              <div className="flex flex-wrap gap-2">
+                                {missingCategories.map((name) => (
+                                  <Button
+                                    key={`missing-cat-${name}`}
+                                    size="sm"
+                                    variant="outline"
+                                    onClick={() => handleCreateMissingCategory(name)}
+                                  >
+                                    Add category "{name}"
+                                  </Button>
+                                ))}
+                              </div>
+                            )}
+                            {missingPaymentModes.length > 0 && (
+                              <div className="flex flex-wrap gap-2">
+                                {missingPaymentModes.map((name) => (
+                                  <Button
+                                    key={`missing-mode-${name}`}
+                                    size="sm"
+                                    variant="outline"
+                                    onClick={() => handleCreateMissingMode(name)}
+                                  >
+                                    Add payment mode "{name}"
+                                  </Button>
+                                ))}
+                              </div>
+                            )}
+                          </div>
+                        )}
                         {importRows.length > 0 && (
                           <div className="space-y-2">
                             <p className="text-sm text-muted-foreground">
                               Ready to import {importRows.length} {importRows.length === 1 ? "transaction" : "transactions"}.
                             </p>
-                            <div className="rounded-lg border overflow-hidden">
+                            <div className="max-h-64 overflow-auto rounded-lg border">
                               <Table>
                                 <TableHeader>
                                   <TableRow>
@@ -754,11 +950,11 @@ const CashbookDetail = () => {
                           <div className="grid grid-cols-2 gap-2 mt-4">
                             <div className="rounded-lg border bg-background p-3">
                               <p className="text-xs text-muted-foreground">Total Cash In</p>
-                              <p className="text-base font-semibold text-income">{formatCurrency(cashInTotal)}</p>
+                              <p className="text-base font-semibold text-income">{formatCurrency(filteredCashInTotal)}</p>
                             </div>
                             <div className="rounded-lg border bg-background p-3">
                               <p className="text-xs text-muted-foreground">Total Cash Out</p>
-                              <p className="text-base font-semibold text-expense">{formatCurrency(cashOutTotal)}</p>
+                              <p className="text-base font-semibold text-expense">{formatCurrency(filteredCashOutTotal)}</p>
                             </div>
                           </div>
                         </div>
@@ -910,7 +1106,7 @@ const CashbookDetail = () => {
                 <div className="flex items-center justify-between">
                   <div>
                     <p className="text-sm text-muted-foreground">Total Cash In</p>
-                    <p className="text-2xl font-bold text-income">{formatCurrency(cashInTotal)}</p>
+                    <p className="text-2xl font-bold text-income">{formatCurrency(filteredCashInTotal)}</p>
                   </div>
                   <div className="p-3 rounded-lg bg-gradient-income">
                     <TrendingUp className="h-5 w-5 text-white" />
@@ -923,7 +1119,7 @@ const CashbookDetail = () => {
                 <div className="flex items-center justify-between">
                   <div>
                     <p className="text-sm text-muted-foreground">Total Cash Out</p>
-                    <p className="text-2xl font-bold text-expense">{formatCurrency(cashOutTotal)}</p>
+                    <p className="text-2xl font-bold text-expense">{formatCurrency(filteredCashOutTotal)}</p>
                   </div>
                   <div className="p-3 rounded-lg bg-gradient-expense">
                     <TrendingDown className="h-5 w-5 text-white" />
@@ -952,22 +1148,90 @@ const CashbookDetail = () => {
         {/* Transactions Section */}
         <Card className="shadow-card">
           <CardHeader>
-            <div className="flex items-center justify-between">
-              <CardTitle>Recent Transactions</CardTitle>
-              <div className="flex items-center gap-2">
-                <div className="relative">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <CardTitle>Transactions</CardTitle>
+              <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:items-center">
+                <div className="relative w-full sm:w-64">
                   <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                   <Input
                     placeholder="Search transactions..."
                     value={searchQuery}
                     onChange={(e) => setSearchQuery(e.target.value)}
-                    className="pl-10 w-64"
+                    className="w-full pl-10"
                   />
                 </div>
+                <Button variant="ghost" size="sm" onClick={handleResetFilters} className="justify-start sm:justify-center">
+                  Reset filters
+                </Button>
               </div>
             </div>
           </CardHeader>
           <CardContent>
+            <div className="grid gap-3 pb-4 md:grid-cols-2 lg:grid-cols-4">
+              <div className="space-y-1">
+                <Label className="text-xs uppercase text-muted-foreground">Sort by</Label>
+                <Select value={sortOption} onValueChange={(value) => setSortOption(value as SortOption)}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Sort transactions" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="DATE_DESC">Newest first</SelectItem>
+                    <SelectItem value="DATE_ASC">Oldest first</SelectItem>
+                    <SelectItem value="CASH_IN_DESC">Highest cash in</SelectItem>
+                    <SelectItem value="CASH_OUT_DESC">Highest cash out</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-1">
+                <Label className="text-xs uppercase text-muted-foreground">Category</Label>
+                <Select value={filterCategory} onValueChange={setFilterCategory}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="All categories" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All categories</SelectItem>
+                    {categories.map((category) => (
+                      <SelectItem key={category.id} value={category.name}>
+                        {category.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-1">
+                <Label className="text-xs uppercase text-muted-foreground">Payment mode</Label>
+                <Select value={filterMode} onValueChange={setFilterMode}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="All payment modes" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All payment modes</SelectItem>
+                    {paymentModes.map((mode) => (
+                      <SelectItem key={mode.id} value={mode.name}>
+                        {mode.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-1">
+                <Label className="text-xs uppercase text-muted-foreground">Date range</Label>
+                <div className="grid grid-cols-2 gap-2">
+                  <Input
+                    type="date"
+                    value={filterStartDate}
+                    onChange={(e) => setFilterStartDate(e.target.value)}
+                    className="text-sm"
+                  />
+                  <Input
+                    type="date"
+                    value={filterEndDate}
+                    onChange={(e) => setFilterEndDate(e.target.value)}
+                    className="text-sm"
+                  />
+                </div>
+              </div>
+            </div>
             <Table>
               <TableHeader>
                 <TableRow>
