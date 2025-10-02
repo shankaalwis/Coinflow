@@ -40,26 +40,26 @@ const Login = () => {
       <div className="grid min-h-screen lg:grid-cols-[1.1fr_1fr]">
         <section className="relative hidden overflow-hidden lg:flex">
           <div className="absolute inset-0 bg-gradient-to-br from-slate-950 via-primary/90 to-primary" />
-          <div className="relative z-10 flex w-full flex-col justify-between p-12 text-white">
+          <div className="relative z-10 flex w-full flex-col justify-between p-12 text-[hsl(131,58%,66%)]">
             <div className="space-y-4">
-              <span className="inline-flex items-center gap-2 text-sm font-semibold uppercase tracking-[0.35em] text-white/80">
-                <CheckCircle2 className="h-4 w-4" />
-                Coinflow
-              </span>
-              <h1 className="text-4xl font-semibold leading-tight text-white">Stay ahead of your cash flow.</h1>
-              <p className="max-w-md text-base text-white/90">Consolidate personal and business finances, understand trends, and act faster with a single source of truth.</p>
+              <div className="inline-flex items-center gap-3">
+                <img src="/logo.svg" alt="Coinflow logo" className="h-10 w-10" />
+                <span className="text-sm font-semibold uppercase tracking-[0.35em]">Coinflow</span>
+              </div>
+              <h1 className="text-4xl font-semibold leading-tight">Stay ahead of your cash flow.</h1>
+              <p className="max-w-md text-base text-[hsl(131,58%,66%)]/80">Consolidate personal and business finances, understand trends, and act faster with a single source of truth.</p>
             </div>
             <div className="space-y-4">
               {featureHighlights.map((item) => (
-                <div key={item} className="flex items-start gap-3 rounded-xl bg-white/15 p-4 backdrop-blur">
+                <div key={item} className="flex items-start gap-3 rounded-xl bg-white/10 p-4 backdrop-blur">
                   <span className="rounded-full bg-white/30 p-1 text-slate-900">
                     <CheckCircle2 className="h-5 w-5" />
                   </span>
-                  <p className="text-sm font-medium text-white">{item}</p>
+                  <p className="text-sm font-medium text-[hsl(131,58%,66%)]">{item}</p>
                 </div>
               ))}
             </div>
-            <p className="text-xs text-white/75">Tip: you can switch between light and dark themes from the dashboard at any time.</p>
+            <p className="text-xs text-[hsl(131,58%,66%)]/70">Tip: you can switch between light and dark themes from the dashboard at any time.</p>
           </div>
         </section>
 

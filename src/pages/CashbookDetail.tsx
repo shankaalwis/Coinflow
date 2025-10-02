@@ -84,6 +84,8 @@ const CashbookDetail = () => {
     addTransaction,
     updateTransaction,
     deleteTransaction,
+    addCategory,
+    addPaymentMode,
     categories,
     paymentModes,
     primaryCurrency,
@@ -526,7 +528,14 @@ const CashbookDetail = () => {
     }
 
     addCategory(trimmed);
-    setMissingCategories((prev) => prev.filter((item) => item.toLowerCase() != trimmed.toLowerCase()));
+    setImportRows((prev) =>
+      prev.map((row) =>
+        row.transaction.category.toLowerCase() === name.trim().toLowerCase()
+          ? { ...row, transaction: { ...row.transaction, category: trimmed } }
+          : row,
+      ),
+    );
+    setMissingCategories((prev) => prev.filter((item) => item.toLowerCase() !== trimmed.toLowerCase()));
     toast({
       title: "Category added",
       description: `"${trimmed}" is now available for import.`,
@@ -540,7 +549,14 @@ const CashbookDetail = () => {
     }
 
     addPaymentMode(trimmed);
-    setMissingPaymentModes((prev) => prev.filter((item) => item.toLowerCase() != trimmed.toLowerCase()));
+    setImportRows((prev) =>
+      prev.map((row) =>
+        row.transaction.mode.toLowerCase() === name.trim().toLowerCase()
+          ? { ...row, transaction: { ...row.transaction, mode: trimmed } }
+          : row,
+      ),
+    );
+    setMissingPaymentModes((prev) => prev.filter((item) => item.toLowerCase() !== trimmed.toLowerCase()));
     toast({
       title: "Payment mode added",
       description: `"${trimmed}" is now available for import.`,
@@ -762,7 +778,7 @@ const CashbookDetail = () => {
                 </div>
                 <div className="flex flex-wrap gap-2">
                   <Button variant="outline" onClick={handleExportTransactions}>
-                    <Download className="h-4 w-4 mr-2" /> Export CSV
+                    <Upload className="h-4 w-4 mr-2" /> Export CSV
                   </Button>
                   <Dialog
                     open={isImportDialogOpen}
@@ -775,7 +791,7 @@ const CashbookDetail = () => {
                   >
                     <DialogTrigger asChild>
                       <Button variant="outline" className="gap-2">
-                        <Upload className="h-4 w-4" />
+                        <Download className="h-4 w-4" />
                         Import CSV
                       </Button>
                     </DialogTrigger>
