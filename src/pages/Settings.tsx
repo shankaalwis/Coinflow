@@ -1,7 +1,7 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -11,6 +11,8 @@ import { ArrowLeft, Plus, Pencil, Trash2, Settings as SettingsIcon, Tag, CreditC
 import { useToast } from "@/hooks/use-toast";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { useCashbookContext } from "@/context/CashbookContext";
+import { useAuth } from "@/hooks/useAuth";
+import { supabase } from "@/integrations/supabase/client";
 
 const currencyOptions = [
   { code: "USD", label: "US Dollar (USD)" },
@@ -41,11 +43,21 @@ const Settings = () => {
     primaryCurrency,
     updatePrimaryCurrency,
   } = useCashbookContext();
+  const { user } = useAuth();
 
   const [categoryName, setCategoryName] = useState("");
   const [modeName, setModeName] = useState("");
   const [isCategoryDialogOpen, setIsCategoryDialogOpen] = useState(false);
   const [isModeDialogOpen, setIsModeDialogOpen] = useState(false);
+  const [email, setEmail] = useState(user?.email ?? "");
+  const [emailLoading, setEmailLoading] = useState(false);
+  const [newPassword, setNewPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const [passwordLoading, setPasswordLoading] = useState(false);
+
+  useEffect(() => {
+    setEmail(user?.email ?? "");
+  }, [user?.email]);
 
   const handleAddCategory = (e: React.FormEvent) => {
     e.preventDefault();
@@ -122,6 +134,86 @@ const Settings = () => {
     });
   };
 
+  const handleEmailUpdate = async (event: React.FormEvent) => {
+    event.preventDefault();
+    if (!email || email === user?.email) {
+      toast({
+        title: "No changes detected",
+        description: "Update the email address before saving.",
+      });
+      return;
+    }
+
+    setEmailLoading(true);
+    const { error } = await supabase.auth.updateUser({ email });
+
+    if (error) {
+      toast({
+        title: "Email update failed",
+        description: error.message,
+        variant: "destructive",
+      });
+    } else {
+      toast({
+        title: "Verify the new email",
+        description: "We sent a confirmation link to your new address.",
+      });
+    }
+
+    setEmailLoading(false);
+  };
+
+  const handlePasswordUpdate = async (event: React.FormEvent) => {
+    event.preventDefault();
+
+    if (!newPassword || !confirmPassword) {
+      toast({
+        title: "Enter a password",
+        description: "Both password fields are required.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    if (newPassword !== confirmPassword) {
+      toast({
+        title: "Passwords do not match",
+        description: "Make sure both password entries are identical.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    if (newPassword.length < 8) {
+      toast({
+        title: "Password too short",
+        description: "Use at least 8 characters for your password.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    setPasswordLoading(true);
+    const { error } = await supabase.auth.updateUser({ password: newPassword });
+
+    if (error) {
+      toast({
+        title: "Password update failed",
+        description: error.message,
+        variant: "destructive",
+      });
+    } else {
+      toast({
+        title: "Password updated",
+        description: "Your password has been changed successfully.",
+      });
+      setNewPassword("");
+      setConfirmPassword("");
+    }
+
+    setPasswordLoading(false);
+  };
+
   return (
     <div className="min-h-screen bg-background">
       {/* Header */}
@@ -141,7 +233,7 @@ const Settings = () => {
             </div>
             <div className="flex items-center gap-2">
               <span className="hidden text-xs font-medium uppercase tracking-[0.25em] text-muted-foreground sm:inline">Coinflow v1.5.0</span>
-              <Button variant="outline" onClick={() => navigate("/account")}>
+              <Button variant="outline" onClick={() => document.getElementById("account-settings")?.scrollIntoView({ behavior: "smooth" })}>
                 <SettingsIcon className="h-4 w-4 mr-2" />
                 Account
               </Button>
@@ -379,6 +471,67 @@ const Settings = () => {
             </div>
           </CardContent>
         </Card>
+
+        <Card id="account-settings" className="shadow-card mt-8">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <SettingsIcon className="h-5 w-5" />
+              Account Settings
+            </CardTitle>
+            <CardDescription>Update your contact details and password from the same page.</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-6">
+            <form onSubmit={handleEmailUpdate} className="space-y-4">
+              <div className="space-y-2">
+                <Label htmlFor="account-email">Email address</Label>
+                <Input
+                  id="account-email"
+                  type="email"
+                  value={email}
+                  onChange={(event) => setEmail(event.target.value)}
+                  placeholder="you@example.com"
+                  required
+                />
+              </div>
+              <div className="flex flex-wrap justify-end gap-2">
+                <Button type="submit" disabled={emailLoading}>{emailLoading ? "Saving..." : "Update email"}</Button>
+              </div>
+            </form>
+
+            <div className="border-t pt-4">
+              <form onSubmit={handlePasswordUpdate} className="grid gap-4 sm:grid-cols-2">
+                <div className="space-y-2">
+                  <Label htmlFor="new-password">New password</Label>
+                  <Input
+                    id="new-password"
+                    type="password"
+                    value={newPassword}
+                    onChange={(event) => setNewPassword(event.target.value)}
+                    placeholder="Enter a new password"
+                    minLength={8}
+                    required
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="confirm-password">Confirm password</Label>
+                  <Input
+                    id="confirm-password"
+                    type="password"
+                    value={confirmPassword}
+                    onChange={(event) => setConfirmPassword(event.target.value)}
+                    placeholder="Re-enter the password"
+                    minLength={8}
+                    required
+                  />
+                </div>
+                <div className="flex flex-wrap justify-end gap-2 sm:col-span-2">
+                  <Button type="submit" disabled={passwordLoading}>{passwordLoading ? "Updating..." : "Update password"}</Button>
+                </div>
+              </form>
+            </div>
+          </CardContent>
+        </Card>
+
       </main>
     </div>
   );

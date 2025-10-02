@@ -92,7 +92,7 @@ const DEFAULT_CATEGORY_NAMES = ["Salary", "Groceries", "Rent", "Utilities", "Con
 
 const DEFAULT_PAYMENT_MODE_NAMES = ["Cash", "Bank Transfer", "Card", "Digital Wallet"] as const;
 
-const DEFAULT_PRIMARY_CURRENCY = "USD";
+const DEFAULT_PRIMARY_CURRENCY = "LKR";
 
 const generateId = () => {
   if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {

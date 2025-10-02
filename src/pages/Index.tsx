@@ -8,6 +8,9 @@ const Index = () => {
     <div className="min-h-screen bg-gradient-primary px-4 py-16">
       <div className="mx-auto flex max-w-3xl flex-col items-center text-center text-white space-y-10">
         <div className="space-y-4">
+          <picture className="mx-auto flex justify-center">
+            <img src="/logo.svg" alt="Coinflow logo" className="h-16 w-16" />
+          </picture>
           <p className="text-sm uppercase tracking-[0.35em] text-white/70">Coinflow</p>
           <h1 className="text-5xl font-bold leading-tight">Your cash flow, organised.</h1>
           <p className="text-lg text-white/85">A modern financial cockpit for tracking cash across every account you care about.</p>
